@@ -191,3 +191,11 @@ def test_misread_decimal_rejected():
            "country_code": "TR", "title": "headlight", "is_requested_part": True}
     assert verify(raw, {page["url"]: page}, "TR", "g", EST, "headlight").price is None
     assert verify({**raw, "price": 5280}, {page["url"]: page}, "TR", "g", EST, "headlight").price == 5280
+
+
+def test_gemini_only_lite_models(monkeypatch):
+    names = {p.name: p.model for p in llm.default_chain()}
+    assert all("flash-lite" in m for n, m in names.items() if n.startswith("gemini"))
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
+    with pytest.raises(ValueError):
+        llm.default_chain()

@@ -40,7 +40,7 @@ cp .env.example .env                     # add LLM keys; SEARXNG_URL / FIRECRAWL
 uvicorn app.main:app --port 8000
 ```
 
-LLM fallback: **Groq `openai/gpt-oss-120b` → Gemini `gemini-3.8-flash` → Gemini `gemini-flash-lite-latest` → OpenRouter `openai/gpt-oss-120b` → OpenRouter `openrouter/free`**.
+LLM fallback: **Groq `openai/gpt-oss-120b` → Gemini `gemini-3.5-flash-lite` → Gemini `gemini-3.1-flash-lite` (Flash-Lite only, enforced in code) → OpenRouter `openai/gpt-oss-120b` → OpenRouter `openrouter/free`**.
 A provider is skipped on missing key, HTTP error, timeout or non-JSON; after a 429/5xx it cools down (Retry-After, else 30–60 s).
 The response's `diagnostics.web_deep_search` shows every stage count, drop reasons, providers used and timing.
 

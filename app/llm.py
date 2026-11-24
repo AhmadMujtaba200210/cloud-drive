@@ -30,14 +30,22 @@ class Provider:
         return os.getenv(self.key_env) or None
 
 
+def _lite(model: str) -> str:
+    """Policy: only low-cost Gemini Flash-Lite models. Any override that is not a '-flash-lite' text model is refused."""
+    if "flash-lite" not in model or any(x in model for x in ("image", "tts", "audio")):
+        raise ValueError(f"Gemini model {model!r} is not an allowed Flash-Lite text model")
+    return model
+
+
 def default_chain() -> list[Provider]:
     return [
         Provider("groq", "https://api.groq.com/openai/v1", "LAUNCHSHIELD_GROQ_API_KEY",
                  os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")),
-        Provider("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
-                 os.getenv("GEMINI_MODEL", "gemini-3.8-flash")),
+        # Gemini: cheap Flash-Lite tier ONLY (pinned versions, so an alias can never drift to a pricier model).
         Provider("gemini-lite", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
-                 os.getenv("GEMINI_LITE_MODEL", "gemini-flash-lite-latest")),
+                 _lite(os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))),
+        Provider("gemini-lite-2", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
+                 _lite(os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite"))),
         Provider("openrouter", "https://openrouter.ai/api/v1", "LAUNCHSHIELD_OPENROUTER_API_KEY",
                  os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b"),
                  {"X-Title": "PartsBridge PK"}),
