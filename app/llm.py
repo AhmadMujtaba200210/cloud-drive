@@ -1,4 +1,4 @@
-"""LLM fallback chain: Groq (gpt-oss-120b) -> Gemini -> OpenRouter.
+"""LLM fallback chain: Groq (gpt-oss-120b) -> OpenRouter -> Gemini Flash-Lite (last resort).
 
 All three expose OpenAI-compatible /chat/completions, so one client handles them.
 A provider is skipped if its key is missing; on HTTP error, timeout, or unparseable JSON
@@ -41,16 +41,16 @@ def default_chain() -> list[Provider]:
     return [
         Provider("groq", "https://api.groq.com/openai/v1", "LAUNCHSHIELD_GROQ_API_KEY",
                  os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")),
-        # Gemini: cheap Flash-Lite tier ONLY (pinned versions, so an alias can never drift to a pricier model).
-        Provider("gemini-lite", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
-                 _lite(os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))),
-        Provider("gemini-lite-2", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
-                 _lite(os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite"))),
         Provider("openrouter", "https://openrouter.ai/api/v1", "LAUNCHSHIELD_OPENROUTER_API_KEY",
                  os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b"),
                  {"X-Title": "PartsBridge PK"}),
         Provider("openrouter-free", "https://openrouter.ai/api/v1", "LAUNCHSHIELD_OPENROUTER_API_KEY",
                  os.getenv("OPENROUTER_FREE_MODEL", "openrouter/free"), {"X-Title": "PartsBridge PK"}),
+        # Gemini: cheap Flash-Lite tier ONLY (pinned versions, so an alias can never drift to a pricier model).
+        Provider("gemini-lite", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
+                 _lite(os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))),
+        Provider("gemini-lite-2", "https://generativelanguage.googleapis.com/v1beta/openai", "LAUNCHSHIELD_GEMINI_API_KEY",
+                 _lite(os.getenv("GEMINI_LITE_MODEL", "gemini-3.1-flash-lite"))),
     ]
 
 

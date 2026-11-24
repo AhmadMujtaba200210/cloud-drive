@@ -199,3 +199,8 @@ def test_gemini_only_lite_models(monkeypatch):
     monkeypatch.setenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
     with pytest.raises(ValueError):
         llm.default_chain()
+
+
+def test_gemini_is_last_in_chain():
+    names = [p.name for p in llm.default_chain()]
+    assert names == ["groq", "openrouter", "openrouter-free", "gemini-lite", "gemini-lite-2"]
