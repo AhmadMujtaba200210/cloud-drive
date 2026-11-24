@@ -1,0 +1,5 @@
+{
+  "_status": "Fallback PKR per 1 unit of currency. Overwritten at runtime by a live feed when FX_LIVE=1. Update before relying on totals.",
+  "as_of": "fallback-static",
+  "pkr_per_unit": { "PKR": 1, "USD": 281.0, "AED": 76.5, "SAR": 74.9, "JPY": 1.85, "EUR": 305.0, "GBP": 355.0, "CNY": 39.0, "THB": 8.3, "MYR": 63.0, "SGD": 210.0, "TRY": 6.8, "KRW": 0.2, "CAD": 202.0 }
+}

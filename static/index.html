@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PartsBridge PK</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#16202a;--mute:#5b6773;--line:#dde2e7;--acc:#0b6e4f;--acc2:#e8f4ef;--warn:#8a5a00;--warnbg:#fff6e0}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1418;--card:#172026;--ink:#e6edf2;--mute:#9aa7b2;--line:#2a363f;--acc:#3ccf91;--acc2:#16322a;--warn:#ffcc66;--warnbg:#2e2614}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:18px 16px;border-bottom:1px solid var(--line);background:var(--card)}header h1{margin:0;font-size:20px}header p{margin:4px 0 0;color:var(--mute)}
+main{max-width:1100px;margin:0 auto;padding:16px}
+form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;background:var(--card);padding:14px;border:1px solid var(--line);border-radius:10px}
+label{font-size:12px;color:var(--mute);display:flex;flex-direction:column;gap:4px}
+input,select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+.chk{flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--ink)}
+button{font:inherit;font-weight:600;padding:10px;border:0;border-radius:6px;background:var(--acc);color:#fff;cursor:pointer;grid-column:1/-1}
+h2{font-size:17px;margin:22px 0 8px}h3{font-size:15px;margin:14px 0 6px;color:var(--mute)}
+.best{background:var(--acc2);border:1px solid var(--acc);border-radius:10px;padding:14px}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:8px 0}
+.row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}.total{font-size:18px;font-weight:700}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:10px;background:var(--acc2);color:var(--acc);margin-right:4px}
+.mute{color:var(--mute);font-size:13px}.warn{background:var(--warnbg);color:var(--warn);padding:8px;border-radius:6px;font-size:13px;margin:6px 0}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}td,th{text-align:left;padding:5px;border-bottom:1px solid var(--line)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+details summary{cursor:pointer;color:var(--acc);font-size:13px;margin-top:6px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}.tabs button{grid-column:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);padding:6px 12px}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+</style>
+</head>
+<body>
+<header><h1>PartsBridge PK</h1><p>Find any car part: local dealers first, then worldwide with shipping and Pakistan customs.</p></header>
+<main>
+<form id="f">
+  <label>Make<input name="make" value="BMW" required></label>
+  <label>Model<input name="model" value="i7" required></label>
+  <label>Year<input name="year" type="number" value="2024"></label>
+  <label>Part<input name="part_name" value="steering wheel" required></label>
+  <label>OEM part no. (optional)<input name="oem_number"></label>
+  <label>Your city<select name="customer_city"><option>Karachi</option><option selected>Lahore</option><option>Islamabad</option><option>Rawalpindi</option><option>Peshawar</option><option>Faisalabad</option><option>Multan</option><option>Quetta</option></select></label>
+  <label>Min vendor rating<select name="min_vendor_rating"><option value="0">Any</option><option value="4">4.0+</option><option value="4.5">4.5+</option></select></label>
+  <label class="chk"><input type="checkbox" name="is_tax_filer" checked> FBR active tax filer</label>
+  <label class="chk"><input type="checkbox" name="c_new" checked> New</label>
+  <label class="chk"><input type="checkbox" name="c_used" checked> Used</label>
+  <label class="chk"><input type="checkbox" name="c_refurbished" checked> Refurbished</label>
+  <label class="chk"><input type="checkbox" name="oem_only"> Genuine OEM only</label>
+  <button>Search</button>
+</form>
+<div class="tabs" id="tabs">
+  <button data-s="cheapest" class="on">Cheapest</button><button data-s="best_value">Best value</button>
+  <button data-s="top_rated">Top rated</button><button data-s="fastest">Fastest</button>
+</div>
+<div id="out"></div>
+</main>
+<script>
+const pkr = n => n == null ? "—" : "PKR " + Math.round(n).toLocaleString("en-PK");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let sort = "cheapest";
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.remove("on")); b.classList.add("on"); sort = b.dataset.s; run();
+});
+document.getElementById("f").onsubmit = e => { e.preventDefault(); run(); };
+
+function body() {
+  const f = new FormData(document.getElementById("f"));
+  const conds = ["new","used","refurbished"].filter(c => f.get("c_"+c));
+  return {
+    make: f.get("make"), model: f.get("model"), year: f.get("year") ? +f.get("year") : null,
+    part_name: f.get("part_name"), oem_number: f.get("oem_number") || null, customer_city: f.get("customer_city"),
+    is_tax_filer: !!f.get("is_tax_filer"), min_vendor_rating: +f.get("min_vendor_rating"),
+    conditions: conds, authenticity: f.get("oem_only") ? ["oem"] : ["oem","oes","aftermarket"], sort,
+  };
+}
+
+function vendorLine(v) {
+  const bits = [v.address, v.phone, v.email].filter(Boolean).map(esc).join(" · ");
+  const rating = v.rating != null ? `★ ${v.rating} (${v.review_count} reviews)` : "no rating";
+  return `<div class="mute">${esc(v.region)}, ${esc(v.country)} · ${rating}${v.website ? ` · <a href="${esc(v.website)}" target="_blank" rel="noopener">site</a>` : ""}</div><div class="mute">${bits}</div>`;
+}
+
+function optCard(o) {
+  const s = o.shipping, c = o.customs, v = o.offer.vendor;
+  const tags = o.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("");
+  let ship = "";
+  if (o.all_shipping_quotes.length) {
+    ship = `<details><summary>Shipping options (${o.all_shipping_quotes.length})</summary><table><tr><th>Carrier</th><th>Mode</th><th class="n">Shipping</th><th class="n">Duties</th><th class="n">Landed</th><th class="n">Days</th></tr>` +
+      o.all_shipping_quotes.map(q => `<tr><td>${q.carrier_website ? `<a href="${esc(q.carrier_website)}" target="_blank" rel="noopener">${esc(q.carrier)}</a>` : esc(q.carrier)}<div class="mute">${esc(q.rate_basis)}</div></td><td>${esc(q.mode)}</td><td class="n">${pkr(q.cost_pkr)}</td><td class="n">${pkr(q.duties_pkr)}</td><td class="n">${pkr(q.landed_total_pkr)}</td><td class="n">${q.transit_days_min}–${q.transit_days_max}</td></tr>`).join("") + `</table></details>`;
+  }
+  let cust = "";
+  if (c) {
+    cust = `<details><summary>Pakistan customs: ${pkr(c.total_duties_pkr)} · HS ${esc(c.hs_code)} · clearance ${c.clearance_days_min}–${c.clearance_days_max} days</summary>
+      <div class="mute">${esc(c.hs_description)} · channel: ${esc(c.channel)} · assessable value ${pkr(c.assessable_value_pkr)}${c.de_minimis_applied ? " · below de minimis, no duty" : ""}</div>
+      <table><tr><th>Levy</th><th class="n">Rate</th><th class="n">On</th><th class="n">Amount</th></tr>${c.lines.map(l => `<tr><td>${esc(l.name)}</td><td class="n">${l.rate_pct}%</td><td class="n">${pkr(l.base_pkr)}</td><td class="n">${pkr(l.amount_pkr)}</td></tr>`).join("")}</table>
+      ${c.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("")}
+      <ul class="mute">${c.rules.map(r => `<li>${esc(r)}</li>`).join("")}</ul></details>`;
+  }
+  return `<div class="opt"><div class="row"><div><b>${esc(v.name)}</b> ${tags}<div>${esc(o.offer.title)} · ${esc(o.offer.condition)} · ${esc(o.offer.authenticity)}</div>${vendorLine(v)}</div>
+    <div style="text-align:right"><div class="total">${pkr(o.total_landed_pkr)}</div><div class="mute">item ${pkr(o.item_price_pkr)}${o.offer.currency !== "PKR" && o.offer.price != null ? ` (${o.offer.currency} ${o.offer.price.toLocaleString()})` : ""}</div>
+    <div class="mute">${s ? esc(s.carrier) + " · " : ""}${o.days_min ?? "?"}–${o.days_max ?? "?"} days door-to-door</div></div></div>${ship}${cust}</div>`;
+}
+
+async function run() {
+  const out = document.getElementById("out");
+  out.innerHTML = `<p class="mute">Searching local dealers and worldwide sources…</p>`;
+  const r = await fetch("/api/search", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body())});
+  if (!r.ok) { out.innerHTML = `<div class="warn">Search failed: ${r.status}</div>`; return; }
+  const d = await r.json();
+  let h = "";
+  if (d.cheapest_overall) {
+    const b = d.cheapest_overall;
+    h += `<h2>Cheapest way to get it</h2><div class="best"><b>${pkr(b.total_landed_pkr)}</b> from ${esc(b.offer.vendor.name)} (${esc(b.offer.vendor.region)}, ${esc(b.offer.vendor.country)}) · ${b.is_local ? "local" : "imported via " + esc(b.shipping?.carrier)} · ${b.days_min}–${b.days_max} days</div>`;
+  }
+  h += `<h2>In Pakistan</h2>` + (d.local.length ? d.local.map(optCard).join("") : `<p class="mute">No priced local listing found.</p>`);
+  if (d.contact_only.length) {
+    h += `<h2>Dealers with no listed price (contact for a quote)</h2>` + d.contact_only.map(o => `<div class="opt"><b>${esc(o.offer.vendor.name)}</b> <span class="tag">${o.is_local ? "Pakistan" : esc(o.offer.vendor.country)}</span><div>${esc(o.offer.title)}</div>${vendorLine(o.offer.vendor)}</div>`).join("");
+  }
+  h += `<h2>Worldwide (by country, cheapest first)</h2>`;
+  for (const g of d.international) {
+    h += `<h3>${esc(g.country_name)}: from ${pkr(g.best_total_pkr)} landed</h3>`;
+    for (const [region, opts] of Object.entries(g.regions)) h += `<div class="mute"><b>${esc(region)}</b></div>` + opts.map(optCard).join("");
+  }
+  h += `<h2>Notes</h2><ul class="mute">${d.disclaimers.map(x => `<li>${esc(x)}</li>`).join("")}<li>FX: ${esc(d.fx_as_of)}. Sources: ${d.sources_used.map(esc).join(", ")}</li></ul>`;
+  out.innerHTML = h;
+}
+run();
+</script>
+</body>
+</html>

@@ -1,0 +1,873 @@
+{
+ "_notice": "DEMO DATA. All vendors, contacts, prices and part numbers are fictional placeholders.",
+ "vendors": [
+  {
+   "id": "pk-khi-1",
+   "name": "[DEMO] Shershah Imported Parts",
+   "country": "PK",
+   "region": "Karachi",
+   "rating": 4.1,
+   "review_count": 230,
+   "ships_to_pk": true,
+   "address": "Demo address, Karachi",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "pk-khi-1@example.com",
+   "website": "https://example.com/pk-khi-1"
+  },
+  {
+   "id": "pk-khi-2",
+   "name": "[DEMO] Plaza Euro Spares",
+   "country": "PK",
+   "region": "Karachi",
+   "rating": 3.6,
+   "review_count": 48,
+   "ships_to_pk": true,
+   "address": "Demo address, Karachi",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "pk-khi-2@example.com",
+   "website": "https://example.com/pk-khi-2"
+  },
+  {
+   "id": "pk-lhr-1",
+   "name": "[DEMO] Lahore German Auto House",
+   "country": "PK",
+   "region": "Lahore",
+   "rating": 4.4,
+   "review_count": 120,
+   "ships_to_pk": true,
+   "address": "Demo address, Lahore",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "pk-lhr-1@example.com",
+   "website": "https://example.com/pk-lhr-1"
+  },
+  {
+   "id": "pk-isb-1",
+   "name": "[DEMO] Capital Prestige Motors Parts Desk",
+   "country": "PK",
+   "region": "Islamabad",
+   "rating": 4.7,
+   "review_count": 64,
+   "ships_to_pk": true,
+   "address": "Demo address, Islamabad",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "pk-isb-1@example.com",
+   "website": "https://example.com/pk-isb-1"
+  },
+  {
+   "id": "ae-dxb-1",
+   "name": "[DEMO] Deira Genuine Parts LLC",
+   "country": "AE",
+   "region": "Dubai",
+   "rating": 4.6,
+   "review_count": 890,
+   "ships_to_pk": true,
+   "address": "Demo address, Dubai",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "ae-dxb-1@example.com",
+   "website": "https://example.com/ae-dxb-1"
+  },
+  {
+   "id": "ae-dxb-2",
+   "name": "[DEMO] Al Quoz Euro Breakers",
+   "country": "AE",
+   "region": "Dubai",
+   "rating": 4.0,
+   "review_count": 310,
+   "ships_to_pk": true,
+   "address": "Demo address, Dubai",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "ae-dxb-2@example.com",
+   "website": "https://example.com/ae-dxb-2"
+  },
+  {
+   "id": "ae-shj-1",
+   "name": "[DEMO] Sharjah Industrial Area 4 Spares",
+   "country": "AE",
+   "region": "Sharjah",
+   "rating": 3.8,
+   "review_count": 150,
+   "ships_to_pk": true,
+   "address": "Demo address, Sharjah",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "ae-shj-1@example.com",
+   "website": "https://example.com/ae-shj-1"
+  },
+  {
+   "id": "jp-tyo-1",
+   "name": "[DEMO] Tokyo Bay Auto Export",
+   "country": "JP",
+   "region": "Tokyo",
+   "rating": 4.8,
+   "review_count": 2100,
+   "ships_to_pk": true,
+   "address": "Demo address, Tokyo",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "jp-tyo-1@example.com",
+   "website": "https://example.com/jp-tyo-1"
+  },
+  {
+   "id": "jp-osa-1",
+   "name": "[DEMO] Osaka Parts Yard",
+   "country": "JP",
+   "region": "Osaka",
+   "rating": 4.3,
+   "review_count": 640,
+   "ships_to_pk": true,
+   "address": "Demo address, Osaka",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "jp-osa-1@example.com",
+   "website": "https://example.com/jp-osa-1"
+  },
+  {
+   "id": "jp-ngo-1",
+   "name": "[DEMO] Nagoya Eco Parts",
+   "country": "JP",
+   "region": "Nagoya",
+   "rating": 4.5,
+   "review_count": 980,
+   "ships_to_pk": true,
+   "address": "Demo address, Nagoya",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "jp-ngo-1@example.com",
+   "website": "https://example.com/jp-ngo-1"
+  },
+  {
+   "id": "de-muc-1",
+   "name": "[DEMO] Munich OEM Teile",
+   "country": "DE",
+   "region": "Munich",
+   "rating": 4.9,
+   "review_count": 3400,
+   "ships_to_pk": true,
+   "address": "Demo address, Munich",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "de-muc-1@example.com",
+   "website": "https://example.com/de-muc-1"
+  },
+  {
+   "id": "de-ber-1",
+   "name": "[DEMO] Berlin Autoteile Verwertung",
+   "country": "DE",
+   "region": "Berlin",
+   "rating": 4.2,
+   "review_count": 410,
+   "ships_to_pk": true,
+   "address": "Demo address, Berlin",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "de-ber-1@example.com",
+   "website": "https://example.com/de-ber-1"
+  },
+  {
+   "id": "gb-bhm-1",
+   "name": "[DEMO] Midlands Breakers",
+   "country": "GB",
+   "region": "Birmingham",
+   "rating": 4.4,
+   "review_count": 1500,
+   "ships_to_pk": true,
+   "address": "Demo address, Birmingham",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "gb-bhm-1@example.com",
+   "website": "https://example.com/gb-bhm-1"
+  },
+  {
+   "id": "us-la-1",
+   "name": "[DEMO] SoCal Euro Salvage",
+   "country": "US",
+   "region": "Los Angeles",
+   "rating": 4.1,
+   "review_count": 770,
+   "ships_to_pk": true,
+   "address": "Demo address, Los Angeles",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "us-la-1@example.com",
+   "website": "https://example.com/us-la-1"
+  },
+  {
+   "id": "th-bkk-1",
+   "name": "[DEMO] Bangkok Siam Parts",
+   "country": "TH",
+   "region": "Bangkok",
+   "rating": 4.0,
+   "review_count": 260,
+   "ships_to_pk": true,
+   "address": "Demo address, Bangkok",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "th-bkk-1@example.com",
+   "website": "https://example.com/th-bkk-1"
+  },
+  {
+   "id": "my-kul-1",
+   "name": "[DEMO] KL Half-Cut Centre",
+   "country": "MY",
+   "region": "Kuala Lumpur",
+   "rating": 3.9,
+   "review_count": 190,
+   "ships_to_pk": true,
+   "address": "Demo address, Kuala Lumpur",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "my-kul-1@example.com",
+   "website": "https://example.com/my-kul-1"
+  },
+  {
+   "id": "cn-gz-1",
+   "name": "[DEMO] Guangzhou Auto Parts City",
+   "country": "CN",
+   "region": "Guangzhou",
+   "rating": 3.7,
+   "review_count": 5200,
+   "ships_to_pk": true,
+   "address": "Demo address, Guangzhou",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "cn-gz-1@example.com",
+   "website": "https://example.com/cn-gz-1"
+  },
+  {
+   "id": "sa-ruh-1",
+   "name": "[DEMO] Riyadh Al Haraj Parts",
+   "country": "SA",
+   "region": "Riyadh",
+   "rating": 3.9,
+   "review_count": 140,
+   "ships_to_pk": true,
+   "address": "Demo address, Riyadh",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "sa-ruh-1@example.com",
+   "website": "https://example.com/sa-ruh-1"
+  },
+  {
+   "id": "tr-ist-1",
+   "name": "[DEMO] Istanbul Ikitelli Oto",
+   "country": "TR",
+   "region": "Istanbul",
+   "rating": 4.0,
+   "review_count": 330,
+   "ships_to_pk": true,
+   "address": "Demo address, Istanbul",
+   "phone": "+00 000 0000000",
+   "whatsapp": null,
+   "email": "tr-ist-1@example.com",
+   "website": "https://example.com/tr-ist-1"
+  }
+ ],
+ "listings": [
+  {
+   "vendor_id": "pk-khi-1",
+   "title": "BMW i7 G70 M Sport steering wheel (used, no airbag)",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 650000,
+   "currency": "PKR",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 1,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "pk-khi-2",
+   "title": "BMW 7-series G70 steering wheel - contact for price",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": null,
+   "currency": "PKR",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 1,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "pk-isb-1",
+   "title": "BMW i7 steering wheel genuine new (order via dealer)",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": null,
+   "currency": "PKR",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 21,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "pk-lhr-1",
+   "title": "G70 steering wheel aftermarket leather",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": null,
+   "condition": "new",
+   "authenticity": "aftermarket",
+   "price": 310000,
+   "currency": "PKR",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 2,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "ae-dxb-1",
+   "title": "Genuine BMW i7 G70 steering wheel heated, new",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 6900,
+   "currency": "AED",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "ae-dxb-2",
+   "title": "BMW i7 steering wheel used grade A",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 3200,
+   "currency": "AED",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 2,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "ae-shj-1",
+   "title": "BMW G70 steering wheel copy",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": null,
+   "condition": "new",
+   "authenticity": "aftermarket",
+   "price": 1500,
+   "currency": "AED",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 2,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "jp-tyo-1",
+   "title": "BMW i7 G70 steering wheel JDM used low mileage",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 210000,
+   "currency": "JPY",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 4,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "jp-ngo-1",
+   "title": "BMW i7 steering wheel refurbished leather",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "refurbished",
+   "authenticity": "oem",
+   "price": 260000,
+   "currency": "JPY",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 5,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "de-muc-1",
+   "title": "Original BMW Lenkrad i7 G70 new",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 1650,
+   "currency": "EUR",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "de-ber-1",
+   "title": "BMW i7 G70 Lenkrad gebraucht",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 780,
+   "currency": "EUR",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "gb-bhm-1",
+   "title": "BMW i7 G70 steering wheel breaking",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 590,
+   "currency": "GBP",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "us-la-1",
+   "title": "BMW i7 steering wheel OEM used",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 720,
+   "currency": "USD",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 4,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "cn-gz-1",
+   "title": "Steering wheel for BMW G70 i7 carbon",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": null,
+   "condition": "new",
+   "authenticity": "aftermarket",
+   "price": 2400,
+   "currency": "CNY",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 6,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "tr-ist-1",
+   "title": "BMW i7 direksiyon OEM used",
+   "part_name": "steering wheel",
+   "fits": {
+    "make": "BMW",
+    "model": "i7",
+    "year_from": 2022,
+    "year_to": 2026
+   },
+   "oem_number": "DEMO-SW-G70-001",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 24000,
+   "currency": "TRY",
+   "weight_kg": 3.2,
+   "dims_cm": [
+    45,
+    45,
+    20
+   ],
+   "handling_days": 4,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "pk-khi-1",
+   "title": "Corolla Altis headlight LH genuine",
+   "part_name": "headlight",
+   "fits": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "year_from": 2015,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-HL-COR-01",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 68000,
+   "currency": "PKR",
+   "weight_kg": 4.5,
+   "dims_cm": [
+    70,
+    45,
+    35
+   ],
+   "handling_days": 1,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "pk-lhr-1",
+   "title": "Corolla headlight Taiwan DEPO",
+   "part_name": "headlight",
+   "fits": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "year_from": 2015,
+    "year_to": 2024
+   },
+   "oem_number": null,
+   "condition": "new",
+   "authenticity": "aftermarket",
+   "price": 24000,
+   "currency": "PKR",
+   "weight_kg": 4.5,
+   "dims_cm": [
+    70,
+    45,
+    35
+   ],
+   "handling_days": 1,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "ae-shj-1",
+   "title": "Toyota Corolla headlight genuine",
+   "part_name": "headlight",
+   "fits": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "year_from": 2015,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-HL-COR-01",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 780,
+   "currency": "AED",
+   "weight_kg": 4.5,
+   "dims_cm": [
+    70,
+    45,
+    35
+   ],
+   "handling_days": 2,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "jp-osa-1",
+   "title": "Corolla headlight used Japan",
+   "part_name": "headlight",
+   "fits": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "year_from": 2015,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-HL-COR-01",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 14000,
+   "currency": "JPY",
+   "weight_kg": 4.5,
+   "dims_cm": [
+    70,
+    45,
+    35
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "th-bkk-1",
+   "title": "Corolla Altis headlamp OEM Thailand",
+   "part_name": "headlight",
+   "fits": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "year_from": 2015,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-HL-COR-01",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 5200,
+   "currency": "THB",
+   "weight_kg": 4.5,
+   "dims_cm": [
+    70,
+    45,
+    35
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "my-kul-1",
+   "title": "Corolla headlight half-cut take-off",
+   "part_name": "headlight",
+   "fits": {
+    "make": "Toyota",
+    "model": "Corolla",
+    "year_from": 2015,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-HL-COR-01",
+   "condition": "used",
+   "authenticity": "oem",
+   "price": 380,
+   "currency": "MYR",
+   "weight_kg": 4.5,
+   "dims_cm": [
+    70,
+    45,
+    35
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "pk-khi-2",
+   "title": "Civic front brake pads genuine Honda",
+   "part_name": "brake pad",
+   "fits": {
+    "make": "Honda",
+    "model": "Civic",
+    "year_from": 2016,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-BP-CIV-01",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 14500,
+   "currency": "PKR",
+   "weight_kg": 1.2,
+   "dims_cm": [
+    20,
+    15,
+    8
+   ],
+   "handling_days": 1,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "ae-dxb-1",
+   "title": "Honda Civic brake pad front genuine",
+   "part_name": "brake pad",
+   "fits": {
+    "make": "Honda",
+    "model": "Civic",
+    "year_from": 2016,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-BP-CIV-01",
+   "condition": "new",
+   "authenticity": "oem",
+   "price": 210,
+   "currency": "AED",
+   "weight_kg": 1.2,
+   "dims_cm": [
+    20,
+    15,
+    8
+   ],
+   "handling_days": 2,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "jp-tyo-1",
+   "title": "Civic FK brake pad set Akebono (OES)",
+   "part_name": "brake pad",
+   "fits": {
+    "make": "Honda",
+    "model": "Civic",
+    "year_from": 2016,
+    "year_to": 2024
+   },
+   "oem_number": "DEMO-BP-CIV-01",
+   "condition": "new",
+   "authenticity": "oes",
+   "price": 6500,
+   "currency": "JPY",
+   "weight_kg": 1.2,
+   "dims_cm": [
+    20,
+    15,
+    8
+   ],
+   "handling_days": 3,
+   "in_stock": true
+  },
+  {
+   "vendor_id": "sa-ruh-1",
+   "title": "Honda Civic brake pads",
+   "part_name": "brake pad",
+   "fits": {
+    "make": "Honda",
+    "model": "Civic",
+    "year_from": 2016,
+    "year_to": 2024
+   },
+   "oem_number": null,
+   "condition": "new",
+   "authenticity": "aftermarket",
+   "price": 95,
+   "currency": "SAR",
+   "weight_kg": 1.2,
+   "dims_cm": [
+    20,
+    15,
+    8
+   ],
+   "handling_days": 2,
+   "in_stock": true
+  }
+ ]
+}

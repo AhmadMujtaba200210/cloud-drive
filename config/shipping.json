@@ -1,0 +1,366 @@
+{
+  "_status": "ILLUSTRATIVE RATE CARDS in USD. Replace with live quotes from carrier APIs (DHL MyDHL API, FedEx Rate API, UPS Rating API, Aramex Rate Calculator) before production.",
+  "volumetric_divisor_express": 5000,
+  "sea_min_cbm": 1.0,
+  "zones": {
+    "AE": "gulf",
+    "SA": "gulf",
+    "OM": "gulf",
+    "QA": "gulf",
+    "JP": "far_east",
+    "KR": "far_east",
+    "CN": "far_east",
+    "TH": "asean",
+    "MY": "asean",
+    "SG": "asean",
+    "DE": "europe",
+    "GB": "europe",
+    "IT": "europe",
+    "TR": "europe_near",
+    "US": "americas",
+    "CA": "americas"
+  },
+  "international_carriers": [
+    {
+      "carrier": "DHL Express",
+      "service": "Express Worldwide",
+      "mode": "express",
+      "phone": null,
+      "website": "https://www.dhl.com/pk-en",
+      "max_kg": 300,
+      "fuel_surcharge_pct": 25,
+      "rates_usd": {
+        "gulf": [
+          38,
+          9
+        ],
+        "far_east": [
+          52,
+          13
+        ],
+        "asean": [
+          48,
+          12
+        ],
+        "europe": [
+          55,
+          14
+        ],
+        "europe_near": [
+          50,
+          12
+        ],
+        "americas": [
+          60,
+          15
+        ]
+      },
+      "transit_days": {
+        "gulf": [
+          2,
+          3
+        ],
+        "far_east": [
+          3,
+          5
+        ],
+        "asean": [
+          3,
+          5
+        ],
+        "europe": [
+          3,
+          5
+        ],
+        "europe_near": [
+          3,
+          4
+        ],
+        "americas": [
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "carrier": "FedEx",
+      "service": "International Priority",
+      "mode": "express",
+      "phone": null,
+      "website": "https://www.fedex.com/en-pk",
+      "max_kg": 300,
+      "fuel_surcharge_pct": 24,
+      "rates_usd": {
+        "gulf": [
+          36,
+          9
+        ],
+        "far_east": [
+          50,
+          12
+        ],
+        "asean": [
+          47,
+          12
+        ],
+        "europe": [
+          54,
+          13
+        ],
+        "europe_near": [
+          49,
+          12
+        ],
+        "americas": [
+          57,
+          14
+        ]
+      },
+      "transit_days": {
+        "gulf": [
+          2,
+          4
+        ],
+        "far_east": [
+          3,
+          6
+        ],
+        "asean": [
+          3,
+          6
+        ],
+        "europe": [
+          3,
+          6
+        ],
+        "europe_near": [
+          3,
+          5
+        ],
+        "americas": [
+          4,
+          7
+        ]
+      }
+    },
+    {
+      "carrier": "Aramex",
+      "service": "Priority Parcel Express",
+      "mode": "express",
+      "phone": null,
+      "website": "https://www.aramex.com/pk/en",
+      "max_kg": 70,
+      "fuel_surcharge_pct": 20,
+      "rates_usd": {
+        "gulf": [
+          22,
+          6
+        ],
+        "far_east": [
+          40,
+          10
+        ],
+        "asean": [
+          38,
+          9
+        ],
+        "europe": [
+          45,
+          11
+        ],
+        "europe_near": [
+          40,
+          10
+        ],
+        "americas": [
+          50,
+          12
+        ]
+      },
+      "transit_days": {
+        "gulf": [
+          3,
+          5
+        ],
+        "far_east": [
+          5,
+          8
+        ],
+        "asean": [
+          5,
+          8
+        ],
+        "europe": [
+          5,
+          8
+        ],
+        "europe_near": [
+          4,
+          7
+        ],
+        "americas": [
+          6,
+          9
+        ]
+      }
+    },
+    {
+      "carrier": "Pakistan Post EMS (inbound)",
+      "service": "EMS",
+      "mode": "economy",
+      "phone": null,
+      "website": "https://www.pakpost.gov.pk",
+      "max_kg": 30,
+      "fuel_surcharge_pct": 0,
+      "rates_usd": {
+        "gulf": [
+          15,
+          5
+        ],
+        "far_east": [
+          22,
+          7
+        ],
+        "asean": [
+          20,
+          6
+        ],
+        "europe": [
+          25,
+          8
+        ],
+        "europe_near": [
+          22,
+          7
+        ],
+        "americas": [
+          28,
+          9
+        ]
+      },
+      "transit_days": {
+        "gulf": [
+          7,
+          14
+        ],
+        "far_east": [
+          10,
+          20
+        ],
+        "asean": [
+          10,
+          20
+        ],
+        "europe": [
+          10,
+          20
+        ],
+        "europe_near": [
+          10,
+          18
+        ],
+        "americas": [
+          12,
+          25
+        ]
+      }
+    }
+  ],
+  "sea_freight": {
+    "carrier": "LCL sea consolidator (freight forwarder)",
+    "service": "LCL to Karachi port",
+    "mode": "sea",
+    "min_kg_to_offer": 20,
+    "usd_per_cbm": {
+      "gulf": 45,
+      "far_east": 70,
+      "asean": 65,
+      "europe": 90,
+      "europe_near": 80,
+      "americas": 120
+    },
+    "fixed_usd": 150,
+    "transit_days": {
+      "gulf": [
+        7,
+        12
+      ],
+      "far_east": [
+        20,
+        30
+      ],
+      "asean": [
+        18,
+        28
+      ],
+      "europe": [
+        25,
+        35
+      ],
+      "europe_near": [
+        20,
+        30
+      ],
+      "americas": [
+        35,
+        45
+      ]
+    }
+  },
+  "domestic_onward": {
+    "_note": "Karachi port / courier hub to customer city, PKR. Couriers deliver to door already; this applies to sea cargo only.",
+    "base_pkr": 1500,
+    "per_kg_pkr": 120
+  },
+  "local_carriers": [
+    {
+      "carrier": "TCS",
+      "service": "Overnight",
+      "phone": null,
+      "website": "https://www.tcsexpress.com",
+      "base_pkr": 350,
+      "per_kg_pkr": 220,
+      "same_city_days": [
+        1,
+        1
+      ],
+      "intercity_days": [
+        1,
+        3
+      ]
+    },
+    {
+      "carrier": "Leopards Courier",
+      "service": "Overland",
+      "phone": null,
+      "website": "https://www.leopardscourier.com",
+      "base_pkr": 250,
+      "per_kg_pkr": 150,
+      "same_city_days": [
+        1,
+        2
+      ],
+      "intercity_days": [
+        2,
+        4
+      ]
+    },
+    {
+      "carrier": "M&P",
+      "service": "Express",
+      "phone": null,
+      "website": "https://www.mulphilog.com",
+      "base_pkr": 300,
+      "per_kg_pkr": 180,
+      "same_city_days": [
+        1,
+        2
+      ],
+      "intercity_days": [
+        2,
+        3
+      ]
+    }
+  ],
+  "_phones": "Carrier phone numbers intentionally left null: fill from each carrier's official site before launch."
+}

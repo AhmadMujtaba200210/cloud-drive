@@ -1,0 +1,37 @@
+{
+  "_status": "UNVERIFIED PLACEHOLDER RATES. Pakistan tariff rates change via Finance Act and SROs several times a year. Before production, set every rate from the current Pakistan Customs Tariff (fbr.gov.pk) / WeBOC and the latest RD/ACD SROs, then fill last_verified.",
+  "last_verified": null,
+  "landing_charge_pct": 1.0,
+  "insurance_pct_if_undeclared": 1.0,
+  "sales_tax_pct": 18.0,
+  "withholding_income_tax_pct": { "filer": 6.0, "non_filer": 12.0 },
+  "courier_de_minimis_pkr": 1000,
+  "courier_value_cap_pkr": 500000,
+  "clearance_days": { "courier": [1, 3], "cargo": [4, 10] },
+  "default_hs": "8708.99",
+  "hs_profiles": {
+    "8708.94": { "desc": "Steering wheels, steering columns and steering boxes", "cd": 35, "acd": 6, "rd": 10, "keywords": ["steering wheel", "steering column", "steering rack", "steering box"] },
+    "8708.95": { "desc": "Safety airbags with inflater system", "cd": 35, "acd": 6, "rd": 10, "keywords": ["airbag", "air bag"], "dangerous_goods": true },
+    "8708.30": { "desc": "Brakes and servo-brakes; parts thereof", "cd": 35, "acd": 6, "rd": 10, "keywords": ["brake", "brake pad", "brake disc", "rotor", "caliper"] },
+    "8708.80": { "desc": "Suspension systems and parts (incl. shock absorbers)", "cd": 35, "acd": 6, "rd": 10, "keywords": ["shock", "suspension", "strut", "control arm"] },
+    "8708.40": { "desc": "Gear boxes and parts thereof", "cd": 35, "acd": 6, "rd": 10, "keywords": ["gearbox", "transmission"] },
+    "8708.10": { "desc": "Bumpers and parts thereof", "cd": 35, "acd": 6, "rd": 10, "keywords": ["bumper"] },
+    "8708.29": { "desc": "Other parts and accessories of bodies (incl. cabs)", "cd": 35, "acd": 6, "rd": 10, "keywords": ["door", "bonnet", "hood", "fender", "trunk", "grille"] },
+    "8708.91": { "desc": "Radiators and parts thereof", "cd": 35, "acd": 6, "rd": 10, "keywords": ["radiator"] },
+    "8708.92": { "desc": "Silencers (mufflers) and exhaust pipes", "cd": 35, "acd": 6, "rd": 10, "keywords": ["exhaust", "muffler", "silencer"] },
+    "8512.20": { "desc": "Other lighting or visual signalling equipment", "cd": 20, "acd": 6, "rd": 10, "keywords": ["headlight", "headlamp", "tail light", "taillight", "fog lamp"] },
+    "7009.10": { "desc": "Rear-view mirrors for vehicles", "cd": 20, "acd": 6, "rd": 0, "keywords": ["mirror"] },
+    "8409.91": { "desc": "Parts for spark-ignition piston engines", "cd": 20, "acd": 6, "rd": 0, "keywords": ["piston", "cylinder head", "engine", "gasket"] },
+    "8421.23": { "desc": "Oil or petrol filters for internal combustion engines", "cd": 20, "acd": 6, "rd": 0, "keywords": ["oil filter", "fuel filter"] },
+    "8507.60": { "desc": "Lithium-ion accumulators", "cd": 20, "acd": 6, "rd": 0, "keywords": ["hv battery", "lithium battery", "traction battery"], "dangerous_goods": true },
+    "8708.99": { "desc": "Other parts and accessories of motor vehicles", "cd": 35, "acd": 6, "rd": 10, "keywords": [] }
+  },
+  "rules": [
+    "Courier imports need the consignee's CNIC (and NTN for commercial quantities); the courier files the clearance on your behalf.",
+    "Cargo (air freight / sea) shipments require a Goods Declaration on WeBOC / Pakistan Single Window, usually via a licensed customs agent.",
+    "Customs may re-assess value using Valuation Rulings for auto parts; duty is charged on the higher of declared and ruling value.",
+    "Import of USED auto parts is restricted under the Import Policy Order; check the current IPO schedule before ordering used parts commercially.",
+    "Personal-use quantities only via courier; multiple identical parts may be treated as commercial import.",
+    "Keep the seller's invoice and payment proof (bank / card statement); customs can ask for it to accept declared value."
+  ]
+}
