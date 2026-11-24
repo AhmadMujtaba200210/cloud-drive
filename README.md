@@ -15,12 +15,25 @@ uvicorn app.main:app --reload      # open http://127.0.0.1:8000  (API docs at /d
 pytest -q
 ```
 
+## Deep web search (LLM + Firecrawl), runs on every search
+
+```
+query -> LLM: local-language search queries per country (ja/de/zh/ar...) + est. weight/box
+      -> Firecrawl /v2/search (country-targeted, page markdown)
+      -> LLM: extract sellers/dealers/prices as JSON
+      -> code verification: URL was fetched, vendor name, price text, phone and email appear on that page
+```
+LLM fallback order: **Groq `openai/gpt-oss-120b` → Gemini `gemini-3.8-flash` → Gemini `gemini-flash-lite-latest` → OpenRouter `openai/gpt-oss-120b` → OpenRouter `openrouter/free`**. A provider is skipped on missing key, HTTP error, timeout or non-JSON output.
+Keys go in `.env` (see `.env.example`). Deep search turns on only when `FIRECRAWL_API_KEY` is set: an LLM without fetched pages would invent vendors.
+Live check: `python3 scripts/smoke_llm.py`. Results are cached 6 h per part.
+
 ## Architecture
 
 ```
 app/sources/*      adapters -> Offer list (priced or contact-only)
   demo_catalog     fictional seed data ([DEMO]); disable with DISABLE_DEMO=1
   ebay             eBay Browse API, priced listings that deliver to PK   (EBAY_OAUTH_TOKEN)
+  web_deep_search  Firecrawl + LLM chain (app/llm.py, app/firecrawl.py)
   google_places    Places Text Search: dealer name/address/phone/rating across PK + world hubs (GOOGLE_PLACES_API_KEY)
 app/fx.py          PKR conversion; static table, or live feed with FX_LIVE=1
 app/shipping.py    volumetric weight (LxWxH/5000), carrier rate cards, sea LCL + onward delivery, local couriers (TCS, Leopards, M&P)

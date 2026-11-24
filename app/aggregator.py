@@ -11,8 +11,9 @@ from .sources.base import SourceAdapter
 from .sources.demo_catalog import DemoCatalog
 from .sources.ebay import EbayBrowse
 from .sources.google_places import GooglePlaces
+from .sources.web_deep_search import WebDeepSearch
 
-ALL_ADAPTERS: list[SourceAdapter] = [DemoCatalog(), EbayBrowse(), GooglePlaces()]
+ALL_ADAPTERS: list[SourceAdapter] = [DemoCatalog(), EbayBrowse(), GooglePlaces(), WebDeepSearch()]
 
 # Bayesian-average prior so a 5.0 from 3 reviews does not beat a 4.7 from 2,000.
 PRIOR_RATING, PRIOR_WEIGHT = 3.5, 20

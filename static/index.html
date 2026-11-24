@@ -95,7 +95,9 @@ function optCard(o) {
   }
   return `<div class="opt"><div class="row"><div><b>${esc(v.name)}</b> ${tags}<div>${esc(o.offer.title)} · ${esc(o.offer.condition)} · ${esc(o.offer.authenticity)}</div>${vendorLine(v)}</div>
     <div style="text-align:right"><div class="total">${pkr(o.total_landed_pkr)}</div><div class="mute">item ${pkr(o.item_price_pkr)}${o.offer.currency !== "PKR" && o.offer.price != null ? ` (${o.offer.currency} ${o.offer.price.toLocaleString()})` : ""}</div>
-    <div class="mute">${s ? esc(s.carrier) + " · " : ""}${o.days_min ?? "?"}–${o.days_max ?? "?"} days door-to-door</div></div></div>${ship}${cust}</div>`;
+    <div class="mute">${s ? esc(s.carrier) + " · " : ""}${o.days_min ?? "?"}–${o.days_max ?? "?"} days door-to-door</div>
+    ${o.offer.weight_is_estimate ? `<div class="mute">shipping weight estimated (${o.offer.weight_kg} kg), confirm with seller</div>` : ""}
+    ${o.offer.evidence ? `<div class="mute">price on page: “${esc(o.offer.evidence)}” · <a href="${esc(o.offer.url)}" target="_blank" rel="noopener">source</a></div>` : ""}</div></div>${ship}${cust}</div>`;
 }
 
 async function run() {

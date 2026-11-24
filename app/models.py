@@ -71,6 +71,8 @@ class Offer(BaseModel):
     url: Optional[str] = None
     in_stock: bool = True
     handling_days: int = 2
+    weight_is_estimate: bool = False   # True when weight/dims are an LLM estimate, not seller data
+    evidence: Optional[str] = None     # verbatim price text found on the source page
 
 
 class ShippingQuote(BaseModel):
