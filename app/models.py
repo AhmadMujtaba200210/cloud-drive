@@ -56,6 +56,7 @@ class Vendor(BaseModel):
     ships_to_pk: bool = True
     source: str = "unknown"    # which adapter produced this record
     is_demo: bool = False      # True for seed/sample data, never real
+    location_evidence: Optional[str] = None  # how the country was established (domain / phone code / page text)
 
 
 class Offer(BaseModel):
@@ -144,4 +145,6 @@ class SearchResponse(BaseModel):
     contact_only: list[LandedOption]   # dealers with no listed price
     cheapest_overall: Optional[LandedOption]
     sources_used: list[str]
+    diagnostics: dict = {}
+    analysis: dict = {}
     disclaimers: list[str]

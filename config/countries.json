@@ -1,5 +1,20 @@
 {
-  "PK": "Pakistan", "AE": "United Arab Emirates", "SA": "Saudi Arabia", "OM": "Oman", "QA": "Qatar",
-  "JP": "Japan", "KR": "South Korea", "CN": "China", "TH": "Thailand", "MY": "Malaysia", "SG": "Singapore",
-  "DE": "Germany", "GB": "United Kingdom", "IT": "Italy", "TR": "Turkey", "US": "United States", "CA": "Canada"
+ "PK": "Pakistan",
+ "AE": "United Arab Emirates",
+ "SA": "Saudi Arabia",
+ "OM": "Oman",
+ "QA": "Qatar",
+ "JP": "Japan",
+ "KR": "South Korea",
+ "CN": "China",
+ "TH": "Thailand",
+ "MY": "Malaysia",
+ "SG": "Singapore",
+ "DE": "Germany",
+ "GB": "United Kingdom",
+ "IT": "Italy",
+ "TR": "Turkey",
+ "US": "United States",
+ "CA": "Canada",
+ "XX": "Unknown location"
 }

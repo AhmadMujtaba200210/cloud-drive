@@ -1,0 +1,18 @@
+# SearXNG override for PartsBridge PK. Keeps upstream defaults, enables the JSON API our backend calls.
+use_default_settings: true
+general:
+  instance_name: "partsbridge-search"
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+server:
+  port: 8888
+  bind_address: "127.0.0.1"   # local only; never expose publicly
+  limiter: false
+  secret_key: "change-me-via-SEARXNG_SECRET"
+  image_proxy: false
+outgoing:
+  request_timeout: 6.0
+  max_request_timeout: 12.0

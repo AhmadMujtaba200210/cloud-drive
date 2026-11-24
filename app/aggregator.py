@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 
-from . import customs, fx, shipping
+from . import analysis, customs, fx, shipping
 from .config import countries
 from .models import (CountryGroup, LandedOption, Offer, PartQuery, SearchResponse, ShippingQuote, SortMode)
 from .sources.base import SourceAdapter
@@ -60,8 +60,10 @@ def build_option(q: PartQuery, o: Offer) -> LandedOption:
         per_quote.append((s, cb))
 
     if not per_quote:
+        reason = ("Location unverified: ask seller" if o.vendor.country == "XX" else
+                  "Does not ship to Pakistan" if not o.vendor.ships_to_pk else "No carrier rate for this origin")
         return LandedOption(offer=o, is_local=False, item_price_pkr=price_pkr, shipping=None, customs=None,
-                            total_landed_pkr=None, days_min=None, days_max=None, tags=["Does not ship to Pakistan"])
+                            total_landed_pkr=None, days_min=None, days_max=None, tags=[reason])
 
     def door_days(pair):
         s, cb = pair
@@ -112,10 +114,17 @@ def _sort_key(mode: SortMode):
 
 async def search(q: PartQuery, adapters: list[SourceAdapter] | None = None) -> SearchResponse:
     adapters = [a for a in (adapters or ALL_ADAPTERS) if a.enabled()]
-    results = await asyncio.gather(*(a.search(q) for a in adapters), return_exceptions=True)
-    offers = [o for r in results if not isinstance(r, Exception) for o in r]
-    opts = [build_option(q, o) for o in offers if _passes(q, o)]
+    results = await asyncio.gather(*(a.run(q) for a in adapters), return_exceptions=True)
+    offers, diagnostics = [], {}
+    for a, r in zip(adapters, results):
+        if isinstance(r, Exception):
+            diagnostics[a.name] = {"error": f"{type(r).__name__}: {str(r)[:200]}"}
+            continue
+        offers.extend(r[0])
+        diagnostics[a.name] = {"offers": len(r[0]), **r[1]}
+    opts = analysis.dedupe([build_option(q, o) for o in offers if _passes(q, o)])
     _score_and_tag(opts)
+    analysis.flag_outliers(opts)
 
     priced = [x for x in opts if x.total_landed_pkr is not None]
     contact_only = [x for x in opts if x.item_price_pkr is None]
@@ -139,7 +148,8 @@ async def search(q: PartQuery, adapters: list[SourceAdapter] | None = None) -> S
     return SearchResponse(
         query=q, fx_rates_pkr=rates, fx_as_of=as_of, local=local, international=groups, contact_only=contact_only,
         cheapest_overall=min(priced, key=lambda x: x.total_landed_pkr) if priced else None,
-        sources_used=[a.name for a in adapters],
+        sources_used=[a.name for a in adapters], diagnostics=diagnostics,
+        analysis=analysis.analyse([x for x in priced if x.is_local], [x for x in priced if not x.is_local], contact_only),
         disclaimers=[
             "Shipping rates are illustrative rate cards until carrier APIs are connected.",
             "Customs duties are estimates from configurable placeholder rates; final duty is assessed by Pakistan Customs.",

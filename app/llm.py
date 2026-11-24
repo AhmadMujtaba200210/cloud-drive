@@ -46,6 +46,24 @@ def default_chain() -> list[Provider]:
     ]
 
 
+# Circuit breaker: after a 429/5xx a provider is skipped until its cooldown ends, so one rate-limited
+# provider does not add a failed round-trip to every call in a search.
+_cooldown_until: dict[str, float] = {}
+COOLDOWN_429_S, COOLDOWN_5XX_S = 30.0, 60.0
+
+
+def _cool(p: "Provider", r: httpx.Response) -> None:
+    import time
+    if r.status_code == 429:
+        try:
+            wait = float(r.headers.get("retry-after", COOLDOWN_429_S))
+        except ValueError:
+            wait = COOLDOWN_429_S
+        _cooldown_until[p.name] = time.time() + min(max(wait, 5.0), 300.0)
+    elif r.status_code >= 500:
+        _cooldown_until[p.name] = time.time() + COOLDOWN_5XX_S
+
+
 class LLMUnavailable(RuntimeError):
     pass
 
@@ -79,6 +97,10 @@ async def complete_json(system: str, user: str, *, chain: list[Provider] | None 
             if not p.key:
                 errors.append(f"{p.name}: no key")
                 continue
+            import time
+            if _cooldown_until.get(p.name, 0) > time.time():
+                errors.append(f"{p.name}: cooling down")
+                continue
             try:
                 r = await client.post(
                     f"{p.base_url}/chat/completions",
@@ -87,6 +109,7 @@ async def complete_json(system: str, user: str, *, chain: list[Provider] | None 
                           "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]},
                 )
                 if r.status_code != 200:
+                    _cool(p, r)
                     errors.append(f"{p.name}: HTTP {r.status_code} {r.text[:160]}")
                     continue
                 content = r.json()["choices"][0]["message"].get("content") or ""

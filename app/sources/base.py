@@ -14,3 +14,7 @@ class SourceAdapter(ABC):
 
     @abstractmethod
     async def search(self, q: PartQuery) -> list[Offer]: ...
+
+    async def run(self, q: PartQuery) -> tuple[list[Offer], dict]:
+        """Offers plus per-call diagnostics. Adapters with a richer pipeline override this."""
+        return await self.search(q), {}
