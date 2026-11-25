@@ -49,6 +49,25 @@ Per-country landed-price min/median/max · import-vs-local saving and extra days
 of the cheapest import · **duty break-even multiplier** (how wrong the duty estimate can be before the verdict flips)
 · "Unusually cheap: verify" flag via log-price modified z-score (MAD, cutoff 3.5) · cross-source de-duplication.
 
+## Deploy on an Oracle Cloud VM (public site)
+
+On the VM (Ubuntu 22.04/24.04 or Oracle Linux 8/9, x86 or ARM Ampere):
+```bash
+git clone -b claude/global-car-parts-marketplace-1deni7 https://github.com/AhmadMujtaba200210/cloud-drive.git
+cd cloud-drive
+sudo deploy/install.sh                                         # serves http://<public-ip>/
+# or with HTTPS:  sudo DOMAIN=parts.example.com EMAIL=you@example.com deploy/install.sh
+sudo nano /etc/partsbridge/env                                  # paste LLM keys (never committed)
+sudo systemctl restart partsbridge-app
+```
+OCI console: VCN → Subnet → Security List → add Ingress TCP 80 and 443 from 0.0.0.0/0 (the script opens the OS firewall itself).
+Updates: `sudo deploy/update.sh`. Logs: `journalctl -u partsbridge-app -f` (also `-searxng`, `-firecrawl`).
+
+What runs: nginx :80/:443 (public) → uvicorn 127.0.0.1:8000; SearXNG 127.0.0.1:8888; Firecrawl Local 127.0.0.1:3002
+(cloud off). Only nginx is reachable from outside. Demo data is off in production.
+Quota protection: nginx 6 searches/min per IP (burst 3) + app `RATE_LIMIT_PER_HOUR` (default 30) per IP;
+set `ACCESS_TOKEN` in `/etc/partsbridge/env` to make the site private (`https://host/?token=VALUE`).
+
 ## Architecture
 
 ```

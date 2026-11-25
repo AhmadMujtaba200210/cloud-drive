@@ -129,3 +129,31 @@ def test_api_endpoint():
     r = c.post("/api/search", json=BMW)
     assert r.status_code == 200 and r.json()["cheapest_overall"]
     assert c.post("/api/search", json={"make": "BMW"}).status_code == 422
+
+
+def test_rate_limit_and_token(monkeypatch):
+    from app import main
+    main._hits.clear()
+    c = TestClient(app)
+    monkeypatch.setenv("RATE_LIMIT_PER_HOUR", "2")
+    assert c.post("/api/search", json=BMW).status_code == 200
+    assert c.post("/api/search", json=BMW).status_code == 200
+    r = c.post("/api/search", json=BMW)
+    assert r.status_code == 429 and "Retry-After" in r.headers
+    main._hits.clear()
+    monkeypatch.setenv("ACCESS_TOKEN", "s3cret")
+    assert c.post("/api/search", json=BMW).status_code == 401
+    assert c.post("/api/search", json=BMW, headers={"X-Access-Token": "s3cret"}).status_code == 200
+    assert c.get("/healthz").json() == {"status": "ok"}
+    main._hits.clear()
+
+
+def test_break_even_wording_matches_direction():
+    from app.analysis import analyse
+    r = run(PartQuery(**BMW))
+    intl = [o for g in r.international for v in g.regions.values() for o in v]
+    a = analyse(r.local, intl, [])
+    m, saves = a["duty_break_even_multiplier"], a["import_vs_local"]["import_saves_pkr"]
+    assert (saves > 0) == (m > 1)           # import cheaper now <=> estimate can grow before it flips
+    note = a["duty_break_even_note"]
+    assert ("stays cheaper" in note) == (saves > 0)

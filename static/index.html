@@ -103,8 +103,14 @@ function optCard(o) {
 async function run() {
   const out = document.getElementById("out");
   out.innerHTML = `<p class="mute">Searching local dealers and worldwide sources…</p>`;
-  const r = await fetch("/api/search", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body())});
-  if (!r.ok) { out.innerHTML = `<div class="warn">Search failed: ${r.status}</div>`; return; }
+  const tok = new URLSearchParams(location.search).get("token");
+  const headers = {"Content-Type": "application/json", ...(tok ? {"X-Access-Token": tok} : {})};
+  const r = await fetch("/api/search", {method: "POST", headers, body: JSON.stringify(body())});
+  if (!r.ok) {
+    let msg = r.status;
+    try { msg = (await r.json()).detail || msg; } catch (e) {}
+    out.innerHTML = `<div class="warn">Search failed: ${esc(msg)}</div>`; return;
+  }
   const d = await r.json();
   let h = "";
   if (d.cheapest_overall) {

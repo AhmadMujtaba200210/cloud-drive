@@ -71,9 +71,13 @@ def analyse(local: list[LandedOption], intl: list[LandedOption], contact: list[L
             # duty multiplier m at which item + ship + m*duty == best local
             m = (best_local.total_landed_pkr - item - ship) / duty
             out["duty_break_even_multiplier"] = round(m, 2)
-            out["duty_break_even_note"] = (
-                f"Import stays cheaper unless actual duties exceed {m:.2f}x the estimate." if m > 0 else
-                "Import loses even with zero duty.")
+            if m <= 0:
+                note = "Import loses even with zero duty."
+            elif diff > 0:
+                note = f"Import stays cheaper unless actual duties exceed {m:.2f}x the estimate."
+            else:
+                note = f"Import would only win if actual duties were below {m:.2f}x the estimate."
+            out["duty_break_even_note"] = note
     return out
 
 
