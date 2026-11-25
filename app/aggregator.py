@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 
-from . import analysis, customs, fx, shipping
+from . import analysis, customs, fx, progress, shipping
 from .config import countries
 from .models import (CountryGroup, LandedOption, Offer, PartQuery, SearchResponse, ShippingQuote, SortMode)
 from .sources.base import SourceAdapter
@@ -14,6 +14,13 @@ from .sources.google_places import GooglePlaces
 from .sources.web_deep_search import WebDeepSearch
 
 ALL_ADAPTERS: list[SourceAdapter] = [DemoCatalog(), EbayBrowse(), GooglePlaces(), WebDeepSearch()]
+CONF_RANK = {"high": 0, "medium": 1, "low": 2, None: 3}
+
+
+def is_cached(q: PartQuery) -> bool:
+    """True if the expensive deep search would be served from cache (so it costs no LLM quota)."""
+    deep = [a for a in ALL_ADAPTERS if isinstance(a, WebDeepSearch) and a.enabled()]
+    return bool(deep) and all(a.is_cached(q) for a in deep)
 
 # Bayesian-average prior so a 5.0 from 3 reviews does not beat a 4.7 from 2,000.
 PRIOR_RATING, PRIOR_WEIGHT = 3.5, 20
@@ -118,11 +125,17 @@ async def search(q: PartQuery, adapters: list[SourceAdapter] | None = None) -> S
     offers, diagnostics = [], {}
     for a, r in zip(adapters, results):
         if isinstance(r, Exception):
-            diagnostics[a.name] = {"error": f"{type(r).__name__}: {str(r)[:200]}"}
+            diagnostics[a.name] = {"error": type(r).__name__}      # no internal detail in the public response
+            progress.say("warn", f"One source ({a.name}) failed; continuing with the others.")
             continue
         offers.extend(r[0])
         diagnostics[a.name] = {"offers": len(r[0]), **r[1]}
-    opts = analysis.dedupe([build_option(q, o) for o in offers if _passes(q, o)])
+    passing = [o for o in offers if _passes(q, o)]
+    if passing:
+        progress.say("cost", f"Working out shipping and Pakistan customs to {q.customer_city} for {len(passing)} offers "
+                             f"(carrier rates, HS code, duties, sales tax).")
+    passing.sort(key=lambda o: CONF_RANK.get(o.confidence, 3))     # dedupe keeps the best-evidenced copy
+    opts = analysis.dedupe([build_option(q, o) for o in passing])
     _score_and_tag(opts)
     analysis.flag_outliers(opts)
 

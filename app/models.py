@@ -4,7 +4,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Condition(str, Enum):
@@ -26,19 +28,31 @@ class SortMode(str, Enum):
     best_value = "best_value"  # blended cost / speed / trust score
 
 
+_CTRL = re.compile(r"[\x00-\x1f\x7f<>{}`]")
+
+
 class PartQuery(BaseModel):
-    make: str = Field(..., examples=["BMW"])
-    model: str = Field(..., examples=["i7"])
-    year: Optional[int] = Field(None, examples=[2024])
-    part_name: str = Field(..., examples=["steering wheel"])
-    oem_number: Optional[str] = Field(None, description="Manufacturer part number if known")
-    vin: Optional[str] = None
-    customer_city: str = Field("Karachi", examples=["Lahore"])
+    # Length caps + character cleanup: these fields go into LLM prompts and search queries.
+    make: str = Field(..., min_length=1, max_length=40, examples=["BMW"])
+    model: str = Field(..., min_length=1, max_length=60, examples=["i7"])
+    year: Optional[int] = Field(None, ge=1950, le=2030, examples=[2024])
+    part_name: str = Field(..., min_length=2, max_length=100, examples=["steering wheel"])
+    oem_number: Optional[str] = Field(None, max_length=40, description="Manufacturer part number if known")
+    vin: Optional[str] = Field(None, max_length=17, pattern=r"^[A-HJ-NPR-Za-hj-npr-z0-9]{11,17}$")
+    customer_city: str = Field("Karachi", max_length=40, examples=["Lahore"])
     is_tax_filer: bool = Field(True, description="On FBR Active Taxpayer List (affects withholding tax)")
-    conditions: list[Condition] = Field(default_factory=lambda: list(Condition))
-    authenticity: list[Authenticity] = Field(default_factory=lambda: list(Authenticity))
+    conditions: list[Condition] = Field(default_factory=lambda: list(Condition), min_length=1, max_length=3)
+    authenticity: list[Authenticity] = Field(default_factory=lambda: list(Authenticity), min_length=1, max_length=3)
     min_vendor_rating: float = Field(0.0, ge=0, le=5)
     sort: SortMode = SortMode.cheapest
+
+    @field_validator("make", "model", "part_name", "oem_number", "customer_city", mode="before")
+    @classmethod
+    def _clean(cls, v):
+        if isinstance(v, str):
+            v = re.sub(r"\s+", " ", _CTRL.sub(" ", v)).strip()
+            return v or None
+        return v
 
 
 class Vendor(BaseModel):
@@ -74,6 +88,9 @@ class Offer(BaseModel):
     handling_days: int = 2
     weight_is_estimate: bool = False   # True when weight/dims are an LLM estimate, not seller data
     evidence: Optional[str] = None     # verbatim price text found on the source page
+    confidence: Optional[str] = None   # high | medium | low, from the code checks in web_deep_search.verify
+    checks: list[str] = []             # human-readable verification notes shown to the buyer
+    fits_note: Optional[str] = None    # fitment text copied from the page (models / years / engine)
 
 
 class ShippingQuote(BaseModel):

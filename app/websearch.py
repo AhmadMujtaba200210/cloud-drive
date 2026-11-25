@@ -4,8 +4,11 @@ from __future__ import annotations
 import html
 import os
 import re
+from urllib.parse import urljoin
 
 import httpx
+
+from .netsafe import is_public_url
 
 LANG = {"PK": "en-PK", "AE": "en-AE", "SA": "ar-SA", "OM": "en", "QA": "en", "JP": "ja-JP", "KR": "ko-KR",
         "CN": "zh-CN", "TH": "th-TH", "MY": "en-MY", "SG": "en-SG", "DE": "de-DE", "GB": "en-GB", "IT": "it-IT",
@@ -13,11 +16,17 @@ LANG = {"PK": "en-PK", "AE": "en-AE", "SA": "ar-SA", "OM": "en", "QA": "en", "JP
 
 # Sites that rarely hold part listings with seller details, or block scrapers.
 SKIP_HOSTS = ("facebook.com", "instagram.com", "youtube.com", "tiktok.com", "pinterest.", "reddit.com",
-              "wikipedia.org", "x.com", "twitter.com", "linkedin.com")
+              "wikipedia.org", "x.com", "twitter.com", "linkedin.com", "quora.com", "medium.com")
+MAX_FETCH_BYTES = 3_000_000
 
 
 def searxng_url() -> str | None:
     return (os.getenv("SEARXNG_URL") or "").rstrip("/") or None
+
+
+def _skip(url: str) -> bool:
+    host = re.sub(r"^https?://", "", url).split("/")[0].lower()
+    return any(host == h or host.endswith("." + h) or (h.endswith(".") and h in host) for h in SKIP_HOSTS)
 
 
 async def searxng(client: httpx.AsyncClient, query: str, country: str, pages: int = 1) -> list[dict]:
@@ -36,7 +45,7 @@ async def searxng(client: httpx.AsyncClient, query: str, country: str, pages: in
             break
         for x in r.json().get("results", []):
             url = x.get("url") or ""
-            if not url.startswith("http") or any(h in url for h in SKIP_HOSTS):
+            if not url.startswith("http") or _skip(url):
                 continue
             out.append({"url": url, "title": x.get("title") or "", "snippet": x.get("content") or "",
                         "engine": x.get("engine") or ""})
@@ -44,6 +53,7 @@ async def searxng(client: httpx.AsyncClient, query: str, country: str, pages: in
 
 
 _TAG = re.compile(r"<(script|style|noscript|svg)[^>]*>.*?</\1>", re.S | re.I)
+_HREF = re.compile(r"""<a\s[^>]*href=["']([^"'#]+)["']""", re.I)
 
 
 def html_to_text(raw: str) -> str:
@@ -55,14 +65,31 @@ def html_to_text(raw: str) -> str:
     return re.sub(r"\n\s*\n+", "\n", raw).strip()
 
 
-async def plain_fetch(client: httpx.AsyncClient, url: str) -> dict | None:
-    """Fallback when Firecrawl is down: plain GET + tag stripping. No JS rendering."""
-    try:
-        r = await client.get(url, timeout=15, follow_redirects=True,
-                             headers={"User-Agent": "Mozilla/5.0 (compatible; PartsBridgeBot/0.1)"})
-    except httpx.HTTPError:
-        return None
-    if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
-        return None
-    m = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.S | re.I)
-    return {"url": url, "title": html.unescape(m.group(1).strip()) if m else "", "markdown": html_to_text(r.text)}
+async def plain_fetch(client: httpx.AsyncClient, url: str, max_redirects: int = 4) -> dict | None:
+    """Fallback when Firecrawl is down: plain GET + tag stripping. No JS rendering.
+    Redirects are followed by hand so every hop passes the SSRF check; the body is size-capped."""
+    current = url
+    for _ in range(max_redirects + 1):
+        if not await is_public_url(current):
+            return None
+        try:
+            async with client.stream("GET", current, timeout=15, follow_redirects=False,
+                                     headers={"User-Agent": "Mozilla/5.0 (compatible; PartsBridgeBot/0.2)"}) as r:
+                if r.is_redirect and r.headers.get("location"):
+                    current = urljoin(current, r.headers["location"])
+                    continue
+                if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
+                    return None
+                body = b""
+                async for chunk in r.aiter_bytes():
+                    body += chunk
+                    if len(body) > MAX_FETCH_BYTES:
+                        break
+                text = body.decode(r.encoding or "utf-8", errors="replace")
+        except httpx.HTTPError:
+            return None
+        m = re.search(r"<title[^>]*>(.*?)</title>", text, re.S | re.I)
+        links = list(dict.fromkeys(urljoin(current, h) for h in _HREF.findall(text)))[:400]
+        return {"url": url, "title": html.unescape(m.group(1).strip()) if m else "", "markdown": html_to_text(text),
+                "links": links}
+    return None

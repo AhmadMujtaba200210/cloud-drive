@@ -31,6 +31,32 @@ query ─► LLM: 2 local-language queries per country (ja / de / th / tr / ar �
       ─► landed cost, ranking, market analysis
 ```
 
+### Deeper research (v0.2)
+- **Follows product links**: a listing / category / search page (≥4 prices, or a listing-shaped URL) has its same-site
+  product links that name the model + part (or OEM number) opened too, for exact prices and seller details.
+- **OEM-number pass**: when a manufacturer part number is printed on pages from ≥2 different sites, it is searched
+  directly in PK / AE / JP / US. Part numbers find listings that never use the part's name.
+- **Confidence + checks per offer** (`high | medium | low`): price printed on page, seller location proof, model on
+  page, OEM number match. The buyer sees the list of checks; dedupe keeps the best-evidenced copy.
+- **Resilient search**: SearXNG runs bing, brave, yahoo, naver, yandex, mwmbl + duckduckgo (`infra/searxng/settings.yml`);
+  an empty query is retried, then simplified. Time budget `DEEP_SEARCH_BUDGET_S` (default 170 s) always returns
+  partial results instead of hanging. Scraped pages are cached for 6 h.
+
+### Live research feed
+`POST /api/search/stream` (Server-Sent Events) narrates the real pipeline as it runs: the planner's strategy,
+each search query, which pages the AI picked and why, every page opened, each price confirmed on its page, claims
+discarded, the OEM pass, and the landed-cost calculation; then a final `result` event. The page types these out
+like a model thinking, with live counters and a "still working on Japan, China…" line during quiet stretches.
+If the stream drops, the browser falls back to polling `/api/search`; the server keeps researching and caches it.
+
+### Public-server hardening
+Strict CSP (no inline script/style), `nosniff`, `frame-ancestors 'none'`, Permissions-Policy · no search on page
+load · cached searches (and sort-tab changes) cost no quota · one running search per IP, `MAX_CONCURRENT_SEARCHES`
+(default 3) server-wide with a queue message · input length/charset limits (fields go into LLM prompts) · scraped
+text is fenced as untrusted in every prompt · SSRF guard on every fetched URL and redirect hop (no private /
+loopback / metadata IPs, DNS-checked) · capped fetch size · no internal error text in API responses ·
+`DISABLE_DOCS=1` hides /docs and /openapi.json in production.
+
 ### One-time setup (no Docker, no paid API)
 ```bash
 scripts/local_search_stack.sh install   # cargo install firecrawl-local + SearXNG from official git
