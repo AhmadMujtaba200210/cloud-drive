@@ -37,7 +37,29 @@ log = logging.getLogger("kb")
 EMB_MODEL = os.getenv("KB_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 EMB_DIM = 384
 TTL = {"plan": 14 * 86400, "page": 86400, "extraction": 14 * 86400, "result": 12 * 3600, "source": 30 * 86400}
-OP_TIMEOUT_S = 6.0
+OP_TIMEOUT_S = 6.0          # reads: never slow a search down for long
+WRITE_TIMEOUT_S = 20.0      # writes run in the background
+CLOB_COLS = {"plan", "markdown", "links", "offers", "stats"}
+
+
+async def upsert(conn, table: str, keys: dict, vals: dict) -> None:
+    """UPDATE ... WHERE key; INSERT if nothing matched. Each bind is used once, and large text is bound as CLOB
+    (a long str bound as VARCHAR, or a MERGE repeating binds, fails in thin mode with ORA-03146)."""
+    import oracledb
+    cur = conn.cursor()
+    binds = {**keys, **vals}
+    sizes = {k: oracledb.DB_TYPE_CLOB for k in binds if k in CLOB_COLS}
+    if "emb" in binds:
+        sizes["emb"] = oracledb.DB_TYPE_VECTOR
+    if sizes:
+        cur.setinputsizes(**sizes)
+    await cur.execute(f"UPDATE {table} SET " + ", ".join(f"{k} = :{k}" for k in vals) + " WHERE "
+                      + " AND ".join(f"{k} = :{k}" for k in keys), binds)
+    if cur.rowcount == 0:
+        cur = conn.cursor()
+        if sizes:
+            cur.setinputsizes(**sizes)
+        await cur.execute(f"INSERT INTO {table} ({', '.join(binds)}) VALUES ({', '.join(':' + k for k in binds)})", binds)
 
 # ---------------- validator: canonical part signature ----------------
 FILLER = {"set", "kit", "pair", "assembly", "assy", "genuine", "original", "oem", "new", "complete", "part", "parts",
@@ -87,6 +109,15 @@ def norm(s: str | None) -> str:
 def query_key(make: str, model: str, year: int | None, part: str, scope: str, oem: str | None = None) -> str:
     raw = "|".join([norm(make), norm(model), str(year or ""), part_signature(part), scope, norm(oem)])
     return hashlib.sha1(raw.encode()).hexdigest()
+
+
+def _j(v):
+    """IS JSON columns come back already parsed on Oracle 23ai/26ai; older drivers return text."""
+    if v is None:
+        return None
+    if isinstance(v, (bytes, bytearray)):
+        v = v.decode()
+    return json.loads(v) if isinstance(v, str) else v
 
 
 def sha1(s: str) -> str:
@@ -172,7 +203,7 @@ class KB:
                     return None
         return self.pool
 
-    async def _run(self, fn, default=None):
+    async def _run(self, fn, default=None, timeout: float = OP_TIMEOUT_S):
         """Run fn(conn) with a timeout; any error -> default (research continues without the KB)."""
         pool = await self._pool()
         if pool is None:
@@ -181,7 +212,7 @@ class KB:
             async def go():
                 async with pool.acquire() as conn:
                     return await fn(conn)
-            return await asyncio.wait_for(go(), OP_TIMEOUT_S)
+            return await asyncio.wait_for(go(), timeout)
         except Exception as e:                                                 # noqa: BLE001
             log.warning("kb op failed: %s", str(e)[:200])
             self.stats["errors"] = self.stats.get("errors", 0) + 1
@@ -233,7 +264,7 @@ class KB:
             await cur.execute("SELECT plan FROM pb_plan WHERE k = :k AND created_at > :t", k=key,
                               t=time.time() - TTL["plan"])
             row = await cur.fetchone()
-            return json.loads(row[0]) if row else None
+            return _j(row[0]) if row else None
         out = await self._run(fn)
         if out:
             self._hit("plan_hits")
@@ -241,14 +272,11 @@ class KB:
 
     async def put_plan(self, key: str, plan: dict) -> None:
         async def fn(conn):
-            await conn.cursor().execute("""MERGE INTO pb_plan d USING (SELECT :k k FROM dual) s ON (d.k = s.k)
-                WHEN MATCHED THEN UPDATE SET plan = :p, created_at = :t
-                WHEN NOT MATCHED THEN INSERT (k, plan, created_at) VALUES (:k, :p, :t)""",
-                               k=key, p=json.dumps(plan, ensure_ascii=False), t=time.time())
+            await upsert(conn, "pb_plan", {"k": key},
+                         {"plan": json.dumps(plan, ensure_ascii=False), "created_at": time.time()})
             await conn.commit()
-        await self._run(fn)
+        await self._run(fn, timeout=WRITE_TIMEOUT_S)
 
-    # ---------- pages ----------
     async def get_page(self, url: str) -> dict | None:
         async def fn(conn):
             cur = conn.cursor()
@@ -257,7 +285,7 @@ class KB:
             row = await cur.fetchone()
             if not row or not row[2]:
                 return None
-            return {"url": url, "title": row[1] or "", "markdown": row[2], "links": json.loads(row[3] or "[]")}
+            return {"url": url, "title": row[1] or "", "markdown": row[2], "links": _j(row[3]) or []}
         out = await self._run(fn)
         if out:
             self._hit("page_hits")
@@ -269,16 +297,12 @@ class KB:
         md = page["markdown"][:400_000]
 
         async def fn(conn):
-            await conn.cursor().execute("""MERGE INTO pb_page d USING (SELECT :h h FROM dual) s ON (d.url_hash = s.h)
-                WHEN MATCHED THEN UPDATE SET content_hash = :c, title = :ti, markdown = :m, links = :l, fetched_at = :t
-                WHEN NOT MATCHED THEN INSERT (url_hash, url, content_hash, title, markdown, links, fetched_at)
-                  VALUES (:h, :u, :c, :ti, :m, :l, :t)""",
-                               h=sha1(page["url"]), u=page["url"][:2000], c=sha1(md), ti=(page.get("title") or "")[:1000],
-                               m=md, l=json.dumps((page.get("links") or [])[:400]), t=time.time())
+            await upsert(conn, "pb_page", {"url_hash": sha1(page["url"])},
+                         {"url": page["url"][:2000], "content_hash": sha1(md), "title": (page.get("title") or "")[:1000],
+                          "markdown": md, "links": json.dumps((page.get("links") or [])[:400]), "fetched_at": time.time()})
             await conn.commit()
-        await self._run(fn)
+        await self._run(fn, timeout=WRITE_TIMEOUT_S)
 
-    # ---------- extractions ----------
     async def get_extractions(self, content_hashes: list[str], part_key: str) -> dict[str, list[dict]]:
         if not content_hashes:
             return {}
@@ -289,7 +313,7 @@ class KB:
             await cur.execute(f"""SELECT content_hash, offers FROM pb_extraction WHERE part_key = :pk AND created_at > :t
                 AND content_hash IN ({",".join(":" + k for k in binds)})""", pk=part_key,
                               t=time.time() - TTL["extraction"], **binds)
-            return {h: json.loads(o) for h, o in await cur.fetchall()}
+            return {h: _j(o) for h, o in await cur.fetchall()}
         out = await self._run(fn, {})
         if out:
             self.stats["extraction_hits"] = self.stats.get("extraction_hits", 0) + len(out)
@@ -300,18 +324,13 @@ class KB:
             return
 
         async def fn(conn):
-            cur = conn.cursor()
-            await cur.executemany("""MERGE INTO pb_extraction d USING (SELECT :c c, :pk pk FROM dual) s
-                ON (d.content_hash = s.c AND d.part_key = s.pk)
-                WHEN MATCHED THEN UPDATE SET offers = :o, provider = :p, created_at = :t
-                WHEN NOT MATCHED THEN INSERT (content_hash, part_key, offers, provider, created_at)
-                  VALUES (:c, :pk, :o, :p, :t)""",
-                                  [{"c": c, "pk": part_key, "o": json.dumps(o, ensure_ascii=False), "p": p[:60],
-                                    "t": time.time()} for c, o, p in rows])
+            for c, offers, provider in rows:
+                await upsert(conn, "pb_extraction", {"content_hash": c, "part_key": part_key},
+                             {"offers": json.dumps(offers, ensure_ascii=False), "provider": provider[:60],
+                              "created_at": time.time()})
             await conn.commit()
-        await self._run(fn)
+        await self._run(fn, timeout=WRITE_TIMEOUT_S)
 
-    # ---------- results (vector reuse) ----------
     async def find_result(self, make: str, model: str, year: int | None, part: str, scope: str,
                           oem: str | None) -> tuple[list[dict], dict, str, float] | None:
         """Exact key first; else nearest stored searches for the same make/model/year/scope by embedding, accepted
@@ -343,25 +362,21 @@ class KB:
         if not row:
             return None
         self._hit("result_hits")
-        return json.loads(row[0]), json.loads(row[1]), row[2], now - float(row[3])
+        return _j(row[0]), _j(row[1]), row[2], now - float(row[3])
 
     async def put_result(self, make: str, model: str, year: int | None, part: str, scope: str, oem: str | None,
                          offers: list[dict], stats: dict) -> None:
         vec = await embed(f"{make} {model} {part}")
 
         async def fn(conn):
-            await conn.cursor().execute("""MERGE INTO pb_result d USING (SELECT :k k FROM dual) s ON (d.k = s.k)
-                WHEN MATCHED THEN UPDATE SET offers = :o, stats = :st, created_at = :t, emb = :v, part_text = :pt
-                WHEN NOT MATCHED THEN INSERT (k, mk, mdl, yr, scope, part_text, part_sig, offers, stats, created_at, emb)
-                  VALUES (:k, :mk, :md, :yr, :sc, :pt, :sig, :o, :st, :t, :v)""",
-                               k=query_key(make, model, year, part, scope, oem), mk=norm(make), md=norm(model),
-                               yr=year, sc=scope, pt=part[:200], sig=part_signature(part)[:200],
-                               o=json.dumps(offers, ensure_ascii=False), st=json.dumps(stats, ensure_ascii=False, default=str),
-                               t=time.time(), v=vec)
+            await upsert(conn, "pb_result", {"k": query_key(make, model, year, part, scope, oem)},
+                         {"mk": norm(make), "mdl": norm(model), "yr": year, "scope": scope, "part_text": part[:200],
+                          "part_sig": part_signature(part)[:200], "offers": json.dumps(offers, ensure_ascii=False),
+                          "stats": json.dumps(stats, ensure_ascii=False, default=str), "created_at": time.time(),
+                          "emb": vec})
             await conn.commit()
-        await self._run(fn)
+        await self._run(fn, timeout=WRITE_TIMEOUT_S)
 
-    # ---------- known-good sources ----------
     async def known_sources(self, make: str, model: str, part: str, country: str, limit: int = 4) -> list[dict]:
         vec = await embed(f"{make} {model} {part}")
         if vec is None:
@@ -390,16 +405,23 @@ class KB:
         sig = part_signature(part)
 
         async def fn(conn):
-            cur = conn.cursor()
-            await cur.executemany("""MERGE INTO pb_source d USING (SELECT :h h FROM dual) s ON (d.url_hash = s.h)
-                WHEN MATCHED THEN UPDATE SET price = :p, currency = :c, last_verified = :t, hits = d.hits + 1, title = :ti
-                WHEN NOT MATCHED THEN INSERT (url_hash, url, vendor, country, mk, mdl, part_sig, title, price, currency,
-                  last_verified, hits, emb) VALUES (:h, :u, :vd, :cc, :mk, :md, :sig, :ti, :p, :c, :t, 1, :v)""",
-                                  [{"h": sha1(o.url), "u": o.url[:2000], "vd": o.vendor.name[:200], "cc": o.vendor.country,
-                                    "mk": norm(make), "md": norm(model), "sig": sig[:200], "ti": (o.title or "")[:400],
-                                    "p": o.price, "c": o.currency[:3], "t": time.time(), "v": vec} for o in good])
+            seen = set()
+            for o in good:
+                h = sha1(o.url)
+                if h in seen:
+                    continue
+                seen.add(h)
+                cur = conn.cursor()
+                await cur.execute("""UPDATE pb_source SET price = :p, currency = :c, last_verified = :t, hits = hits + 1
+                    WHERE url_hash = :h""", {"p": o.price, "c": o.currency[:3], "t": time.time(), "h": h})
+                if cur.rowcount == 0:
+                    await upsert(conn, "pb_source", {"url_hash": h},
+                                 {"url": o.url[:2000], "vendor": o.vendor.name[:200], "country": o.vendor.country,
+                                  "mk": norm(make), "mdl": norm(model), "part_sig": sig[:200],
+                                  "title": (o.title or "")[:400], "price": o.price, "currency": o.currency[:3],
+                                  "last_verified": time.time(), "hits": 1, "emb": vec})
             await conn.commit()
-        await self._run(fn)
+        await self._run(fn, timeout=WRITE_TIMEOUT_S)
 
     async def ping(self) -> str:
         async def fn(conn):
