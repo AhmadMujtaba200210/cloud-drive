@@ -60,6 +60,9 @@ sudo deploy/install.sh                                         # serves http://<
 sudo nano /etc/partsbridge/env                                  # paste LLM keys (never committed)
 sudo systemctl restart partsbridge-app
 ```
+If Caddy already runs on the VM, the installer adds a Caddy site block instead of nginx, served at
+`https://<ip-with-dashes>.sslip.io/` (or your `DOMAIN`) so Let's Encrypt can issue a real certificate; a bare IP cannot get one.
+
 OCI console: VCN → Subnet → Security List → add Ingress TCP 80 and 443 from 0.0.0.0/0 (the script opens the OS firewall itself).
 Updates: `sudo deploy/update.sh`. Logs: `journalctl -u partsbridge-app -f` (also `-searxng`, `-firecrawl`).
 

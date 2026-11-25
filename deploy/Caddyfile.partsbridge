@@ -1,0 +1,16 @@
+# PartsBridge PK site block, imported from /etc/caddy/Caddyfile by deploy/install.sh.
+# __SITE__ is a real hostname (your DOMAIN, or <ip-with-dashes>.sslip.io) so Caddy can get a
+# Let's Encrypt certificate automatically. A bare IP gets no public certificate, so HTTPS fails.
+__SITE__ {
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	request_body {
+		max_size 64KB
+	}
+	# Deep search takes 1-2.5 min; Caddy's reverse_proxy has no response timeout by default.
+	reverse_proxy 127.0.0.1:8000
+}

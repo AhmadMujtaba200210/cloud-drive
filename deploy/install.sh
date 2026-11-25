@@ -21,22 +21,34 @@ DOMAIN="${DOMAIN:-}"
 EMAIL="${EMAIL:-}"
 log() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 
+# Web front: reuse Caddy if it already runs here (installing nginx would fight it for :80), else nginx.
+FRONT="${FRONT:-}"
+if [ -z "$FRONT" ]; then
+  if (ss -ltnp 2>/dev/null | grep -E ':(80|443)\s' | grep -q caddy) || systemctl is-active --quiet caddy 2>/dev/null; then
+    FRONT=caddy
+  else
+    FRONT=nginx
+  fi
+fi
+echo "Web front: $FRONT"
+WEBPKG=""; [ "$FRONT" = nginx ] && WEBPKG=nginx
+
 # ---------- 1. packages ----------
 log "Installing system packages"
 if command -v apt-get >/dev/null; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
-  apt-get install -y python3 python3-venv python3-dev git curl nginx build-essential pkg-config libssl-dev \
+  apt-get install -y python3 python3-venv python3-dev git curl $WEBPKG build-essential pkg-config libssl-dev \
                      libxml2-dev libxslt1-dev zlib1g-dev rsync
   apt-get install -y chromium-browser 2>/dev/null || apt-get install -y chromium 2>/dev/null || true
-  [ -n "$DOMAIN" ] && apt-get install -y certbot python3-certbot-nginx
+  [ -n "$DOMAIN" ] && [ "$FRONT" = nginx ] && apt-get install -y certbot python3-certbot-nginx
   PKG=apt
 elif command -v dnf >/dev/null; then
-  dnf install -y python3.11 python3.11-devel git curl nginx gcc gcc-c++ make pkgconf-pkg-config openssl-devel \
+  dnf install -y python3.11 python3.11-devel git curl $WEBPKG gcc gcc-c++ make pkgconf-pkg-config openssl-devel \
                  libxml2-devel libxslt-devel zlib-devel rsync policycoreutils-python-utils || \
-  dnf install -y python3 python3-devel git curl nginx gcc gcc-c++ make openssl-devel libxml2-devel libxslt-devel zlib-devel rsync
+  dnf install -y python3 python3-devel git curl $WEBPKG gcc gcc-c++ make openssl-devel libxml2-devel libxslt-devel zlib-devel rsync
   dnf install -y chromium 2>/dev/null || true
-  [ -n "$DOMAIN" ] && { dnf install -y epel-release 2>/dev/null || dnf install -y oracle-epel-release-el9 2>/dev/null || true; dnf install -y certbot python3-certbot-nginx || true; }
+  [ -n "$DOMAIN" ] && [ "$FRONT" = nginx ] && { dnf install -y epel-release 2>/dev/null || dnf install -y oracle-epel-release-el9 2>/dev/null || true; dnf install -y certbot python3-certbot-nginx || true; }
   PKG=dnf
 else
   echo "Unsupported OS (need apt or dnf)"; exit 1
@@ -143,15 +155,38 @@ systemctl daemon-reload
 systemctl enable --now partsbridge-searxng partsbridge-firecrawl
 systemctl enable partsbridge-app; systemctl restart partsbridge-app
 
-# ---------- 8. nginx ----------
-log "nginx"
-NGX_CONF=/etc/nginx/conf.d/partsbridge.conf
-[ -d /etc/nginx/sites-enabled ] && rm -f /etc/nginx/sites-enabled/default
-sed "s/__SERVER_NAME__/${DOMAIN:-_}/" "$APP/deploy/nginx.conf" > $NGX_CONF
-[ -s /proc/net/if_inet6 ] || sed -i '/listen \[::\]/d' $NGX_CONF      # host without IPv6
-nginx -t
-systemctl enable nginx; systemctl restart nginx
-if [ "$PKG" = dnf ] && command -v setsebool >/dev/null; then setsebool -P httpd_can_network_connect 1 || true; fi
+# ---------- 8. web front: Caddy if it already owns :80/:443 (or FRONT=caddy), else nginx ----------
+PUBLIC_IP=$(curl -s -m 5 https://ifconfig.me || true)
+SITE="${DOMAIN:-}"
+if [ -z "$SITE" ] && [ -n "$PUBLIC_IP" ]; then SITE="${PUBLIC_IP//./-}.sslip.io"; fi   # free hostname -> real TLS cert
+
+if [ "$FRONT" = caddy ]; then
+  log "Caddy already serves this host: adding a PartsBridge site block for https://$SITE/"
+  [ -n "$SITE" ] || { echo "Cannot determine a hostname: set DOMAIN=..."; exit 1; }
+  CADDY_MAIN=/etc/caddy/Caddyfile
+  CADDY_SITE=/etc/caddy/partsbridge.caddy
+  sed "s/__SITE__/$SITE/" "$APP/deploy/Caddyfile.partsbridge" > $CADDY_SITE
+  touch $CADDY_MAIN
+  cp -n $CADDY_MAIN "$CADDY_MAIN.bak-before-partsbridge" 2>/dev/null || true
+  grep -qF "import $CADDY_SITE" $CADDY_MAIN || printf '\nimport %s\n' "$CADDY_SITE" >> $CADDY_MAIN
+  caddy validate --config $CADDY_MAIN --adapter caddyfile
+  systemctl reload caddy || systemctl restart caddy
+  if grep -nE '^\s*(http://)?[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(:443)?\s*\{' $CADDY_MAIN; then
+    echo "!! $CADDY_MAIN has a bare-IP site block (above). Browsers cannot get a valid certificate for it."
+    echo "   Remove it if it was meant for PartsBridge; the app is now served at https://$SITE/"
+  fi
+  SITE_URL="https://$SITE/"
+else
+  log "nginx"
+  NGX_CONF=/etc/nginx/conf.d/partsbridge.conf
+  [ -d /etc/nginx/sites-enabled ] && rm -f /etc/nginx/sites-enabled/default
+  sed "s/__SERVER_NAME__/${DOMAIN:-_}/" "$APP/deploy/nginx.conf" > $NGX_CONF
+  [ -s /proc/net/if_inet6 ] || sed -i '/listen \[::\]/d' $NGX_CONF      # host without IPv6
+  nginx -t
+  systemctl enable nginx; systemctl restart nginx
+  if [ "$PKG" = dnf ] && command -v setsebool >/dev/null; then setsebool -P httpd_can_network_connect 1 || true; fi
+  SITE_URL="${DOMAIN:+https://$DOMAIN/}"; SITE_URL="${SITE_URL:-http://${PUBLIC_IP:-<public-ip>}/}"
+fi
 
 # ---------- 9. OS firewall (Oracle images block 80/443 by default even after the cloud Security List allows them) ----------
 log "Opening ports 80/443 in the OS firewall"
@@ -168,7 +203,7 @@ elif command -v iptables >/dev/null; then
 fi
 
 # ---------- 10. TLS ----------
-if [ -n "$DOMAIN" ] && [ -n "$EMAIL" ] && command -v certbot >/dev/null; then
+if [ "$FRONT" = nginx ] && [ -n "$DOMAIN" ] && [ -n "$EMAIL" ] && command -v certbot >/dev/null; then
   log "TLS certificate for $DOMAIN"
   certbot --nginx -d "$DOMAIN" -m "$EMAIL" --agree-tos --non-interactive --redirect || echo "certbot failed: check DNS A record -> this VM"
 fi
@@ -176,11 +211,15 @@ fi
 # ---------- 11. checks ----------
 log "Health checks"
 sleep 4
-for s in partsbridge-searxng partsbridge-firecrawl partsbridge-app nginx; do printf '%-24s %s\n' "$s" "$(systemctl is-active $s)"; done
+for s in partsbridge-searxng partsbridge-firecrawl partsbridge-app $FRONT; do printf '%-24s %s\n' "$s" "$(systemctl is-active $s)"; done
 curl -sf http://127.0.0.1:8888/healthz >/dev/null && echo "SearXNG   ok" || echo "SearXNG   NOT ready (journalctl -u partsbridge-searxng)"
 curl -s -o /dev/null http://127.0.0.1:3002/ && echo "Firecrawl ok" || echo "Firecrawl NOT ready (journalctl -u partsbridge-firecrawl)"
-curl -sf http://127.0.0.1/healthz && echo "  <- app via nginx ok" || echo "app via nginx NOT ready (journalctl -u partsbridge-app)"
+curl -sf http://127.0.0.1:8000/healthz && echo "  <- app ok" || echo "app NOT ready (journalctl -u partsbridge-app)"
+if [ "$FRONT" = caddy ]; then
+  curl -sf -m 30 "https://$SITE/healthz" && echo "  <- public HTTPS via Caddy ok" || echo "public HTTPS not ready yet (cert issuance can take ~1 min; journalctl -u caddy)"
+else
+  curl -sf http://127.0.0.1/healthz && echo "  <- app via nginx ok" || echo "app via nginx NOT ready"
+fi
 grep -qE '^LAUNCHSHIELD_(GROQ|OPENROUTER|GEMINI)_API_KEY=.+' $ETC/env || echo "!! No LLM keys yet: sudo nano $ETC/env  then  sudo systemctl restart partsbridge-app"
-IP=$(curl -s -m 5 https://ifconfig.me || echo "<public-ip>")
-echo; echo "Open: ${DOMAIN:+https://$DOMAIN/}${DOMAIN:-http://$IP/}"
+echo; echo "Open: $SITE_URL"
 echo "Also allow TCP 80 and 443 in the OCI console: VCN > Subnet > Security List > Ingress rules (source 0.0.0.0/0)."
