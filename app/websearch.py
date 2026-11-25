@@ -17,6 +17,13 @@ LANG = {"PK": "en-PK", "AE": "en-AE", "SA": "ar-SA", "OM": "en", "QA": "en", "JP
 # Sites that rarely hold part listings with seller details, or block scrapers.
 SKIP_HOSTS = ("facebook.com", "instagram.com", "youtube.com", "tiktok.com", "pinterest.", "reddit.com",
               "wikipedia.org", "x.com", "twitter.com", "linkedin.com", "quora.com", "medium.com")
+# Social shops: many Pakistani parts sellers only sell through Facebook / Instagram pages and groups.
+SOCIAL_HOSTS = ("facebook.com", "instagram.com", "tiktok.com")
+
+
+def is_social(url: str) -> bool:
+    host = re.sub(r"^https?://", "", url).split("/")[0].lower()
+    return any(host == h or host.endswith("." + h) for h in SOCIAL_HOSTS)
 MAX_FETCH_BYTES = 3_000_000
 
 
@@ -24,12 +31,15 @@ def searxng_url() -> str | None:
     return (os.getenv("SEARXNG_URL") or "").rstrip("/") or None
 
 
-def _skip(url: str) -> bool:
+def _skip(url: str, allow_social: bool = False) -> bool:
+    if allow_social and is_social(url):
+        return False
     host = re.sub(r"^https?://", "", url).split("/")[0].lower()
     return any(host == h or host.endswith("." + h) or (h.endswith(".") and h in host) for h in SKIP_HOSTS)
 
 
-async def searxng(client: httpx.AsyncClient, query: str, country: str, pages: int = 1) -> list[dict]:
+async def searxng(client: httpx.AsyncClient, query: str, country: str, pages: int = 1,
+                  allow_social: bool = False) -> list[dict]:
     """Returns [{url, title, snippet, engine}]; empty on failure."""
     base = searxng_url()
     if not base:
@@ -45,7 +55,7 @@ async def searxng(client: httpx.AsyncClient, query: str, country: str, pages: in
             break
         for x in r.json().get("results", []):
             url = x.get("url") or ""
-            if not url.startswith("http") or _skip(url):
+            if not url.startswith("http") or _skip(url, allow_social):
                 continue
             out.append({"url": url, "title": x.get("title") or "", "snippet": x.get("content") or "",
                         "engine": x.get("engine") or ""})

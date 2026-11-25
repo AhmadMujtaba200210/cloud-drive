@@ -10,7 +10,7 @@ from app.models import Authenticity, Condition, Offer, PartQuery, SortMode, Vend
 from app.sources.base import SourceAdapter
 from app.sources.demo_catalog import DemoCatalog
 
-BMW = dict(make="BMW", model="i7", year=2024, part_name="steering wheel", customer_city="Lahore")
+BMW = dict(make="BMW", model="i7", year=2024, part_name="steering wheel", customer_city="Lahore", scope="worldwide")
 
 
 def run(q, adapters=None):

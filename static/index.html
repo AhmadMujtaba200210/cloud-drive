@@ -5,13 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>PartsBridge PK</title>
-<link rel="stylesheet" href="/static/app.css?v=7">
-<script src="/static/app.js?v=7" defer></script>
+<link rel="stylesheet" href="/static/app.css?v=8">
+<script src="/static/app.js?v=8" defer></script>
 </head>
 <body>
 <header><h1>PartsBridge PK</h1><p>Find any car part: local dealers first, then worldwide with shipping and Pakistan customs.</p></header>
 <main>
 <form id="f" autocomplete="on">
+  <label class="switch"><input type="checkbox" name="local_only" role="switch" checked><span class="track" aria-hidden="true"></span>
+    <span><b>Pakistan sellers only</b><span class="mute"> · Pakistani parts websites, Daraz, PakWheels, OLX and Facebook / Instagram shops. Turn off to also compare imports from 12 countries with shipping and customs.</span></span></label>
   <label>Make<input name="make" placeholder="e.g. Toyota" maxlength="40" required></label>
   <label>Model<input name="model" placeholder="e.g. Corolla" maxlength="60" required></label>
   <label>Year<input name="year" type="number" min="1950" max="2030" placeholder="e.g. 2017"></label>

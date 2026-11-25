@@ -42,6 +42,23 @@ query ─► LLM: 2 local-language queries per country (ja / de / th / tr / ar �
   an empty query is retried, then simplified. Time budget `DEEP_SEARCH_BUDGET_S` (default 170 s) always returns
   partial results instead of hanging. Scraped pages are cached for 6 h.
 
+### Knowledge base: Oracle Autonomous Database (vector) — fewer AI calls, same accuracy
+`app/kb.py` stores research plans (14 d), scraped pages (24 h), **AI extractions keyed by the page's exact content
+hash** (14 d: an unchanged page is never sent to the AI twice; a changed price is a new hash), verified results
+(12 h) and known-good seller pages (30 d), with 384-dim embeddings generated locally (fastembed, no API).
+Vector search proposes similar earlier searches; the validator `same_part()` accepts a match only when the
+canonical part signature is identical (plural / synonym / filler-insensitive, front≠rear, left≠right), since
+embedding distance alone ranks "radiator fan" closer to "radiator" than "brake pad set" to "brake pads".
+Verification in code (price on page, location proof) always re-runs on reused extractions. Every DB call has a
+6 s timeout and fails soft. Setup on the server: wallet in `/etc/partsbridge/oracle-wallet`, then
+`sudo deploy/oracle_setup.sh` (creates least-privilege user `PARTSBRIDGE_APP`; the ADMIN password is not stored).
+Maintenance: `python -m app.kb ping | purge`.
+
+### Pakistan-only mode (default)
+`scope=local` searches only Pakistan, deeper: planner queries in English / Roman Urdu / Urdu, site-targeted
+queries for daraz.pk, pakwheels.com, olx.com.pk, plus Facebook / Instagram shops (verified against the search
+engine's public snippet, since those pages need a login). `scope=worldwide` adds the 12-country comparison.
+
 ### Live research feed
 `POST /api/search/stream` (Server-Sent Events) narrates the real pipeline as it runs: the planner's strategy,
 each search query, which pages the AI picked and why, every page opened, each price confirmed on its page, claims

@@ -24,6 +24,7 @@ function body() {
     is_tax_filer: !!f.get("is_tax_filer"), min_vendor_rating: +f.get("min_vendor_rating"),
     conditions: conds.length ? conds : ["new","used","refurbished"],
     authenticity: f.get("oem_only") ? ["oem"] : ["oem","oes","aftermarket"], sort,
+    scope: f.get("local_only") ? "local" : "worldwide",
   };
 }
 
@@ -39,6 +40,9 @@ const feed = {
     this.open = new Map(); this.lastEvt = Date.now(); this.idle = false;
     $("live-log").innerHTML = ""; $("live-now").textContent = ""; $("live-ico").textContent = "";
     $("live").className = "live"; $("live").hidden = false; $("live-tip").hidden = false;
+    $("live-tip").textContent = $("f").elements.local_only.checked
+      ? "Searching Pakistani websites, marketplaces and social media shops takes about a minute. Keep this tab open; results appear here as soon as they're verified."
+      : "Deep research across 12 countries takes 1–2 minutes. Keep this tab open; results appear here as soon as they're verified.";
     $("live-title").textContent = "Researching";
     this.renderStats(); clearInterval(this.timer);
     this.timer = setInterval(() => this.tick(), 1000); this.tick();
@@ -222,54 +226,95 @@ async function resort() {
 }
 
 // ---------------- results ----------------
+let fx = {}, city = "";
+
 function vendorLine(v) {
   const bits = [v.address, v.phone, v.email].filter(Boolean).map(esc).join(" · ");
   const rating = v.rating != null ? `★ ${esc(v.rating)} (${esc(v.review_count)} reviews)` : "no rating";
-  return `<div class="mute">${esc(v.region)}, ${esc(v.country)}${v.location_evidence ? ` (location: ${esc(v.location_evidence)})` : ""} · ${rating}${v.website ? ` · ${link(v.website, "site")}` : ""}</div><div class="mute">${bits}</div>`;
+  const where = v.country === "XX" ? "location not confirmed" : `${esc(v.region)}, ${esc(v.country)}`;
+  return `<div class="mute">${where} · ${rating}${v.website ? ` · ${link(v.website, "website")}` : ""}</div><div class="mute">${bits}</div>`;
 }
 
 function trustBlock(o) {
-  const c = o.offer.confidence, checks = o.offer.checks || [];
-  if (!c && !checks.length) return "";
-  return `<details><summary>${c ? `${esc(c[0].toUpperCase() + c.slice(1))} confidence: ` : ""}what we checked (${checks.length})</summary><ul class="checks">${checks.map(x => `<li>${esc(x)}</li>`).join("")}${o.offer.fits_note ? `<li>Fitment on page: “${esc(o.offer.fits_note)}”</li>` : ""}${o.offer.oem_number ? `<li>Part number on page: ${esc(o.offer.oem_number)}</li>` : ""}</ul></details>`;
+  const checks = o.offer.checks || [];
+  const extra = (o.offer.fits_note ? 1 : 0) + (o.offer.oem_number ? 1 : 0);
+  if (!checks.length && !extra) return "";
+  return `<details><summary>What we checked (${checks.length + extra})</summary><ul class="checks">${checks.map(x => `<li>${esc(x)}</li>`).join("")}${o.offer.fits_note ? `<li>Fitment on page: “${esc(o.offer.fits_note)}”</li>` : ""}${o.offer.oem_number ? `<li>Part number on page: ${esc(o.offer.oem_number)}</li>` : ""}</ul></details>`;
 }
 
-function confBadge(o) {
-  const c = o.offer.confidence;
-  return c ? `<span class="conf conf-${esc(c)}">${esc(c)} confidence</span>` : "";
+// Every landed total is shown as the sum of its parts, so the numbers can be checked by hand.
+function breakdown(o) {
+  if (o.total_landed_pkr == null) return "";
+  const s = o.shipping, off = o.offer, rows = [];
+  let itemNote = "";
+  if (off.currency !== "PKR" && off.price != null) {
+    const rate = fx[off.currency];
+    itemNote = `${esc(off.currency)} ${esc(off.price.toLocaleString())}${rate ? ` × ${esc(rate)} PKR` : ""}`;
+  }
+  rows.push(["Item price", o.item_price_pkr, itemNote]);
+  if (s) {
+    rows.push([o.is_local ? "Delivery to " + esc(city || "you") : "International shipping", s.cost_pkr,
+      `${esc(s.carrier)}${s.mode && s.mode !== "local" ? ` (${esc(s.mode)})` : ""} · ${esc(s.chargeable_kg)} kg chargeable${off.weight_is_estimate ? ", estimated" : ""}`]);
+    if (!o.is_local) rows.push(["Pakistan customs duties & taxes", s.duties_pkr || 0,
+      o.customs ? `HS ${esc(o.customs.hs_code)}${o.customs.de_minimis_applied ? " · below de minimis" : ""}` : ""]);
+  }
+  return `<table class="bd">${rows.map(([k, v, n]) => `<tr><td>${k}${n ? `<div class="mute">${n}</div>` : ""}</td><td class="n">${pkr(v)}</td></tr>`).join("")}<tr class="sum"><td>Total delivered to your door</td><td class="n">${pkr(o.total_landed_pkr)}</td></tr></table>`;
+}
+
+function contactBar(o) {
+  const v = o.offer.vendor, out = [];
+  const page = safeUrl(o.offer.url);
+  if (page) out.push(`<a class="btn" href="${esc(page)}" target="_blank" rel="noopener noreferrer nofollow">Open product page ↗</a>`);
+  const site = safeUrl(v.website);
+  if (site && page && new URL(site).origin !== new URL(page).origin) out.push(`<a class="btn ghost" href="${esc(new URL(site).origin)}" target="_blank" rel="noopener noreferrer nofollow">Seller website ↗</a>`);
+  if (v.phone) {
+    const digits = v.phone.replace(/[^\d+]/g, "");
+    out.push(`<a class="btn ghost" href="tel:${esc(digits)}">Call ${esc(v.phone)}</a>`);
+    const wa = digits.replace(/^\+/, "").replace(/^0(?=3\d{9}$)/, "92");
+    if (/^923\d{9}$/.test(wa)) out.push(`<a class="btn ghost" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>`);
+  }
+  if (v.email) out.push(`<a class="btn ghost" href="mailto:${esc(v.email)}">Email</a>`);
+  return out.length ? `<div class="actions">${out.join("")}</div>` : "";
 }
 
 function optCard(o) {
   const s = o.shipping, c = o.customs, v = o.offer.vendor;
-  const tags = o.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("") + confBadge(o);
+  const tags = o.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("");
   let ship = "";
-  if (o.all_shipping_quotes.length) {
-    ship = `<details><summary>Shipping options (${o.all_shipping_quotes.length})</summary><div class="tablewrap"><table><tr><th>Carrier</th><th>Mode</th><th class="n">Shipping</th><th class="n">Duties</th><th class="n">Landed</th><th class="n">Days</th></tr>` +
+  if (o.all_shipping_quotes.length > 1) {
+    ship = `<details><summary>Compare shipping options (${o.all_shipping_quotes.length})</summary><div class="tablewrap"><table><tr><th>Carrier</th><th>Mode</th><th class="n">Shipping</th><th class="n">Duties</th><th class="n">Landed</th><th class="n">Days</th></tr>` +
       o.all_shipping_quotes.map(q => `<tr><td>${q.carrier_website ? link(q.carrier_website, q.carrier) : esc(q.carrier)}<div class="mute">${esc(q.rate_basis)}</div></td><td>${esc(q.mode)}</td><td class="n">${pkr(q.cost_pkr)}</td><td class="n">${pkr(q.duties_pkr)}</td><td class="n">${pkr(q.landed_total_pkr)}</td><td class="n">${esc(q.transit_days_min)}–${esc(q.transit_days_max)}</td></tr>`).join("") + `</table></div></details>`;
   }
   let cust = "";
   if (c) {
-    cust = `<details><summary>Pakistan customs: ${pkr(c.total_duties_pkr)} · HS ${esc(c.hs_code)} · clearance ${esc(c.clearance_days_min)}–${esc(c.clearance_days_max)} days</summary>
+    cust = `<details><summary>How the ${pkr(c.total_duties_pkr)} customs is calculated · clearance ${esc(c.clearance_days_min)}–${esc(c.clearance_days_max)} days</summary>
       <div class="mute">${esc(c.hs_description)} · channel: ${esc(c.channel)} · assessable value ${pkr(c.assessable_value_pkr)}${c.de_minimis_applied ? " · below de minimis, no duty" : ""}</div>
       <div class="tablewrap"><table><tr><th>Levy</th><th class="n">Rate</th><th class="n">On</th><th class="n">Amount</th></tr>${c.lines.map(l => `<tr><td>${esc(l.name)}</td><td class="n">${esc(l.rate_pct)}%</td><td class="n">${pkr(l.base_pkr)}</td><td class="n">${pkr(l.amount_pkr)}</td></tr>`).join("")}</table></div>
       ${c.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join("")}
       <ul class="mute">${c.rules.map(r => `<li>${esc(r)}</li>`).join("")}</ul></details>`;
   }
-  return `<div class="opt"><div class="row"><div><b>${esc(v.name)}</b> ${tags}<div>${esc(o.offer.title)} · ${esc(o.offer.condition)} · ${esc(o.offer.authenticity)}</div>${vendorLine(v)}</div>
-    <div class="right"><div class="total">${pkr(o.total_landed_pkr)}</div><div class="mute">item ${pkr(o.item_price_pkr)}${o.offer.currency !== "PKR" && o.offer.price != null ? ` (${esc(o.offer.currency)} ${esc(o.offer.price.toLocaleString())})` : ""}</div>
-    <div class="mute">${s ? esc(s.carrier) + " · " : ""}${esc(o.days_min ?? "?")}–${esc(o.days_max ?? "?")} days door-to-door</div>
-    ${o.offer.weight_is_estimate ? `<div class="mute">shipping weight estimated (${esc(o.offer.weight_kg)} kg), confirm with seller</div>` : ""}
-    ${o.offer.evidence ? `<div class="mute">price on page: “${esc(o.offer.evidence)}” · ${link(o.offer.url, "source")}</div>` : ""}</div></div>${trustBlock(o)}${ship}${cust}</div>`;
+  return `<div class="opt"><div class="row"><div class="grow"><b>${esc(v.name)}</b> ${tags}<div>${esc(o.offer.title)} · ${esc(o.offer.condition)} · ${esc(o.offer.authenticity)}</div>${vendorLine(v)}
+    ${o.offer.evidence ? `<div class="mute">Price on the seller's page: “${esc(o.offer.evidence)}”</div>` : ""}
+    <div class="mute">${esc(o.days_min ?? "?")}–${esc(o.days_max ?? "?")} days to your door</div></div>
+    <div class="right"><div class="total">${pkr(o.total_landed_pkr)}</div>${breakdown(o)}</div></div>${contactBar(o)}${trustBlock(o)}${ship}${cust}</div>`;
 }
 
 function render(d) {
+  fx = d.fx_rates_pkr || {}; city = d.query.customer_city;
+  const local = d.query.scope === "local";
   let h = "";
   if (d.cheapest_overall) {
-    const b = d.cheapest_overall;
-    h += `<h2>Cheapest way to get it</h2><div class="best"><b>${pkr(b.total_landed_pkr)}</b> from ${esc(b.offer.vendor.name)} (${esc(b.offer.vendor.region)}, ${esc(b.offer.vendor.country)}) · ${b.is_local ? "local" : "imported via " + esc(b.shipping?.carrier)} · ${esc(b.days_min)}–${esc(b.days_max)} days ${confBadge(b)}</div>`;
+    const b = d.cheapest_overall, v = b.offer.vendor;
+    h += `<h2>Best option</h2><div class="best"><div class="row"><div class="grow">
+      <div class="total">${pkr(b.total_landed_pkr)}</div>
+      <div><b>${esc(v.name)}</b> · ${esc(b.offer.title)}</div>
+      <div class="mute">${v.country === "PK" ? `${esc(v.region !== "-" ? v.region : "Pakistan")}, Pakistan` : `${esc(v.region)}, ${esc(v.country)}`} · ${b.is_local ? "local seller" : "imported via " + esc(b.shipping?.carrier)} · ${esc(b.days_min)}–${esc(b.days_max)} days to your door</div>
+      ${v.address ? `<div class="mute">${esc(v.address)}</div>` : ""}
+      ${b.offer.evidence ? `<div class="mute">Price on the seller's page: “${esc(b.offer.evidence)}”</div>` : ""}</div>
+      <div class="right">${breakdown(b)}</div></div>${contactBar(b)}</div>`;
   }
   const a = d.analysis || {};
-  if (a.priced_offers) {
+  if (!local && a.priced_offers) {
     const iv = a.import_vs_local, sp = a.cheapest_import_cost_split_pct;
     h += `<h2>Market analysis</h2><div class="opt">`;
     if (iv) h += `<div><b>${iv.import_saves_pkr >= 0 ? `Importing saves ${pkr(iv.import_saves_pkr)} (${esc(iv.import_saves_pct)}% below local)` : `Buy locally: importing costs ${(iv.best_import_pkr / iv.best_local_pkr).toFixed(1)}× the local price`}</b> · best local ${pkr(iv.best_local_pkr)} vs best import ${pkr(iv.best_import_pkr)} · import takes ${esc(iv.extra_days)} more days (worst case)</div>`;
@@ -278,19 +323,23 @@ function render(d) {
     h += `<div class="tablewrap"><table><tr><th>Country</th><th class="n">Offers</th><th class="n">Min landed</th><th class="n">Median</th><th class="n">Max</th></tr>` +
       Object.entries(a.landed_by_country || {}).map(([cc, q]) => `<tr><td>${esc(cc)}</td><td class="n">${esc(q.n)}</td><td class="n">${pkr(q.min)}</td><td class="n">${pkr(q.median)}</td><td class="n">${pkr(q.max)}</td></tr>`).join("") + `</table></div></div>`;
   }
-  h += `<h2>In Pakistan</h2>` + (d.local.length ? d.local.map(optCard).join("") : `<p class="mute">No priced local listing found.</p>`);
+  h += `<h2>Pakistani sellers with prices</h2>` + (d.local.length ? d.local.map(optCard).join("") : `<p class="mute">No priced Pakistani listing found.</p>`);
   if (d.contact_only.length) {
-    h += `<h2>Dealers with no listed price (contact for a quote)</h2>` + d.contact_only.map(o => `<div class="opt"><b>${esc(o.offer.vendor.name)}</b> <span class="tag">${o.is_local ? "Pakistan" : o.offer.vendor.country === "XX" ? "Location unverified" : esc(o.offer.vendor.country)}</span>${confBadge(o)}<div>${esc(o.offer.title)}</div>${vendorLine(o.offer.vendor)}${trustBlock(o)}</div>`).join("");
+    h += `<h2>Sellers to contact for a price</h2>` + d.contact_only.map(o => `<div class="opt"><b>${esc(o.offer.vendor.name)}</b> <span class="tag">${o.is_local ? "Pakistan" : o.offer.vendor.country === "XX" ? "Location not confirmed" : esc(o.offer.vendor.country)}</span><div>${esc(o.offer.title)}</div>${vendorLine(o.offer.vendor)}${contactBar(o)}${trustBlock(o)}</div>`).join("");
   }
-  h += `<h2>Worldwide (by country, cheapest first)</h2>`;
-  if (!d.international.length) h += `<p class="mute">No priced international listing with a confirmed seller location.</p>`;
-  for (const g of d.international) {
-    h += `<h3>${esc(g.country_name)}: from ${pkr(g.best_total_pkr)} landed</h3>`;
-    for (const [region, opts] of Object.entries(g.regions)) h += `<div class="mute"><b>${esc(region)}</b></div>` + opts.map(optCard).join("");
+  if (local) {
+    h += `<p class="mute">Showing Pakistani sellers only. Turn off “Pakistan sellers only” and search again to compare imports from 12 countries.</p>`;
+  } else {
+    h += `<h2>Worldwide (by country, cheapest first)</h2>`;
+    if (!d.international.length) h += `<p class="mute">No priced international listing with a confirmed seller location.</p>`;
+    for (const g of d.international) {
+      h += `<h3>${esc(g.country_name)}: from ${pkr(g.best_total_pkr)} delivered</h3>`;
+      for (const [region, opts] of Object.entries(g.regions)) h += `<div class="mute"><b>${esc(region)}</b></div>` + opts.map(optCard).join("");
+    }
   }
   h += `<h2>Notes</h2><ul class="mute">${d.disclaimers.map(x => `<li>${esc(x)}</li>`).join("")}<li>FX: ${esc(d.fx_as_of)}. Sources: ${d.sources_used.map(esc).join(", ")}</li></ul>`;
   const ds = (d.diagnostics || {}).web_deep_search;
-  if (ds && !ds.error) h += `<details><summary>Web research stats</summary><div class="mute">${esc(ds.queries)} searches → ${esc(ds.search_results)} results → ${esc(ds.pages_selected)} pages picked + ${esc(ds.pages_followed ?? 0)} product pages followed → ${esc(ds.pages_scraped)} read (${esc(ds.scraper)}) → ${esc(ds.extracted)} extracted → ${esc(ds.kept)} kept (${esc(ds.dropped_ungrounded)} discarded as not on the page)${ds.oem_pass && ds.oem_pass.oem ? ` · part-number pass ${esc(ds.oem_pass.oem)}: +${esc(ds.oem_pass.new_offers ?? 0)}` : ""} · ${esc(ds.seconds ?? "?")} s${ds.cache ? " · cached" : ""}</div></details>`;
+  if (ds && !ds.error) h += `<details><summary>Web research stats</summary><div class="mute">${esc(ds.queries)} searches → ${esc(ds.search_results)} results → ${esc(ds.pages_selected)} pages picked + ${esc(ds.pages_followed ?? 0)} product pages followed → ${esc(ds.pages_scraped)} read (${esc(ds.scraper)}) → ${esc(ds.extracted)} extracted → ${esc(ds.kept)} kept (${esc(ds.dropped_ungrounded)} discarded as not on the page)${ds.oem_pass && ds.oem_pass.oem ? ` · part-number pass ${esc(ds.oem_pass.oem)}: +${esc(ds.oem_pass.new_offers ?? 0)}` : ""}${ds.saved_llm_calls ? ` · ${esc(ds.saved_llm_calls)} AI calls saved by the knowledge base` : ""} · ${esc(ds.seconds ?? "?")} s${ds.cache ? ` · ${esc(ds.cache)}` : ""}</div></details>`;
   $("out").innerHTML = h;
 }
 

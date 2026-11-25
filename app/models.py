@@ -21,6 +21,11 @@ class Authenticity(str, Enum):
     aftermarket = "aftermarket"
 
 
+class SearchScope(str, Enum):
+    local = "local"            # Pakistani sellers only: PK websites, marketplaces, social media shops
+    worldwide = "worldwide"    # also compare imports from 12 countries, with shipping + customs
+
+
 class SortMode(str, Enum):
     cheapest = "cheapest"      # lowest total landed cost in PKR
     fastest = "fastest"        # shortest door-to-door days
@@ -45,6 +50,7 @@ class PartQuery(BaseModel):
     authenticity: list[Authenticity] = Field(default_factory=lambda: list(Authenticity), min_length=1, max_length=3)
     min_vendor_rating: float = Field(0.0, ge=0, le=5)
     sort: SortMode = SortMode.cheapest
+    scope: SearchScope = SearchScope.local
 
     @field_validator("make", "model", "part_name", "oem_number", "customer_city", mode="before")
     @classmethod

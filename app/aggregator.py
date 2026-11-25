@@ -6,7 +6,8 @@ from collections import defaultdict
 
 from . import analysis, customs, fx, progress, shipping
 from .config import countries
-from .models import (CountryGroup, LandedOption, Offer, PartQuery, SearchResponse, ShippingQuote, SortMode)
+from .models import (CountryGroup, LandedOption, Offer, PartQuery, SearchResponse, SearchScope, ShippingQuote,
+                     SortMode)
 from .sources.base import SourceAdapter
 from .sources.demo_catalog import DemoCatalog
 from .sources.ebay import EbayBrowse
@@ -32,6 +33,9 @@ def trust_score(rating: float | None, reviews: int) -> float:
 
 
 def _passes(q: PartQuery, o: Offer) -> bool:
+    # Pakistan-only mode: Pakistani sellers, plus leads whose location is unproven (shown as contact-only).
+    if q.scope == SearchScope.local and o.vendor.country not in ("PK", "XX"):
+        return False
     if o.condition not in q.conditions or o.authenticity not in q.authenticity:
         return False
     if q.min_vendor_rating and (o.vendor.rating or 0) < q.min_vendor_rating:

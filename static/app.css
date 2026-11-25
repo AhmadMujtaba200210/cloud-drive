@@ -18,8 +18,18 @@ h2{font-size:17px;margin:22px 0 8px}h3{font-size:15px;margin:14px 0 6px;color:va
 .row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}.total{font-size:18px;font-weight:700}
 .right{text-align:right}
 .tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:10px;background:var(--acc2);color:var(--acc);margin-right:4px}
-.conf{display:inline-block;font-size:11px;padding:2px 7px;border-radius:10px;border:1px solid currentColor;margin-right:4px}
-.conf-high{color:var(--acc)}.conf-medium{color:var(--info)}.conf-low{color:var(--warn)}
+.grow{flex:1 1 280px;min-width:0}
+.bd{width:auto;min-width:260px;margin-top:6px}.bd td{padding:3px 0 3px 10px;border-bottom:1px dashed var(--line)}.bd td:first-child{padding-left:0}
+.bd tr.sum td{border-bottom:0;border-top:2px solid var(--ink);font-weight:700;padding-top:5px}
+.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.btn{display:inline-block;font-size:13px;font-weight:600;padding:6px 12px;border-radius:6px;background:var(--acc);color:#fff;text-decoration:none}
+.btn.ghost{background:var(--card);color:var(--acc);border:1px solid var(--acc)}
+.switch{grid-column:1/-1;flex-direction:row;align-items:center;gap:10px;font-size:14px;color:var(--ink);cursor:pointer}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch .track{flex:0 0 40px;height:22px;border-radius:11px;background:var(--line);position:relative;transition:background .15s}
+.switch .track::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.switch input:checked+.track{background:var(--acc)}.switch input:checked+.track::after{left:21px}
+.switch input:focus-visible+.track{outline:2px solid var(--acc);outline-offset:2px}
 .mute{color:var(--mute);font-size:13px}.warn{background:var(--warnbg);color:var(--warn);padding:8px;border-radius:6px;font-size:13px;margin:6px 0}
 table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}td,th{text-align:left;padding:5px;border-bottom:1px solid var(--line)}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 .tablewrap{overflow-x:auto}
@@ -56,4 +66,4 @@ details summary{cursor:pointer;color:var(--acc);font-size:13px;margin-top:6px}
 .live-stats b{color:var(--ink);font-variant-numeric:tabular-nums}
 .live-tip{margin:10px 0 0;font-size:12px;color:var(--mute)}
 @media (prefers-reduced-motion:reduce){.pulse,.caret,.live-log li{animation:none}}
-@media (max-width:600px){.right{text-align:left}.live-log{max-height:200px}}
+@media (max-width:600px){.right{text-align:left}.bd{width:100%}.live-log{max-height:200px}}
