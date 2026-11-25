@@ -21,6 +21,18 @@ SKIP_HOSTS = ("facebook.com", "instagram.com", "youtube.com", "tiktok.com", "pin
 SOCIAL_HOSTS = ("facebook.com", "instagram.com", "tiktok.com")
 
 
+# Only individual posts / listings carry a seller + price; feeds, hashtag, discover and category pages do not.
+SOCIAL_POST = re.compile(
+    r"facebook\.com/(marketplace/item/\d+|[^/?#]+/(posts|videos|photos)/|groups/[^/?#]+/(posts|permalink)/|permalink\.php|"
+    r"story\.php|share/[pv]/|watch/?\?v=|reel/)"
+    r"|instagram\.com/(p|reel|tv)/[\w-]+"
+    r"|tiktok\.com/@[^/?#]+/(video|photo)/\d+", re.I)
+
+
+def is_social_post(url: str) -> bool:
+    return bool(SOCIAL_POST.search(url))
+
+
 def is_social(url: str) -> bool:
     host = re.sub(r"^https?://", "", url).split("/")[0].lower()
     return any(host == h or host.endswith("." + h) for h in SOCIAL_HOSTS)
@@ -33,7 +45,7 @@ def searxng_url() -> str | None:
 
 def _skip(url: str, allow_social: bool = False) -> bool:
     if allow_social and is_social(url):
-        return False
+        return not is_social_post(url)
     host = re.sub(r"^https?://", "", url).split("/")[0].lower()
     return any(host == h or host.endswith("." + h) or (h.endswith(".") and h in host) for h in SKIP_HOSTS)
 

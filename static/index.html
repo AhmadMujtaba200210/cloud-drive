@@ -5,21 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>PartsBridge PK</title>
-<link rel="stylesheet" href="/static/app.css?v=8">
-<script src="/static/app.js?v=8" defer></script>
+<link rel="stylesheet" href="/static/app.css?v=10">
+<script src="/static/app.js?v=10" defer></script>
 </head>
 <body>
 <header><h1>PartsBridge PK</h1><p>Find any car part: local dealers first, then worldwide with shipping and Pakistan customs.</p></header>
 <main>
 <form id="f" autocomplete="on">
   <label class="switch"><input type="checkbox" name="local_only" role="switch" checked><span class="track" aria-hidden="true"></span>
-    <span><b>Pakistan sellers only</b><span class="mute"> · Pakistani parts websites, Daraz, PakWheels, OLX and Facebook / Instagram shops. Turn off to also compare imports from 12 countries with shipping and customs.</span></span></label>
-  <label>Make<input name="make" placeholder="e.g. Toyota" maxlength="40" required></label>
-  <label>Model<input name="model" placeholder="e.g. Corolla" maxlength="60" required></label>
-  <label>Year<input name="year" type="number" min="1950" max="2030" placeholder="e.g. 2017"></label>
-  <label>Part<input name="part_name" placeholder="e.g. air filter" minlength="2" maxlength="100" required></label>
-  <label>OEM part no. (optional)<input name="oem_number" maxlength="40" placeholder="if you know it"></label>
-  <label>Your city<select name="customer_city"><option>Karachi</option><option selected>Lahore</option><option>Islamabad</option><option>Rawalpindi</option><option>Peshawar</option><option>Faisalabad</option><option>Multan</option><option>Quetta</option></select></label>
+    <span><b>Pakistan sellers only</b><span class="mute"> · Pakistani parts websites, Daraz, PakWheels and OLX. Turn off to also compare imports from 12 countries with shipping and customs.</span></span></label>
+  <label class="switch"><input type="checkbox" name="include_social" role="switch" checked><span class="track" aria-hidden="true"></span>
+    <span><b>Include social media sellers</b><span class="mute"> · Facebook pages, groups and Marketplace, Instagram, TikTok and WhatsApp sellers in Pakistan. Prices from posts are checked against the post text.</span></span></label>
+  <div class="field"><label for="i-make">Make</label><div class="combo"><input id="i-make" name="make" placeholder="Type to search, e.g. Toyota" maxlength="40" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="l-make"><ul class="combo-list" id="l-make" role="listbox" hidden></ul></div></div>
+  <div class="field"><label for="i-model">Model</label><div class="combo"><input id="i-model" name="model" placeholder="e.g. Corolla" maxlength="60" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="l-model"><ul class="combo-list" id="l-model" role="listbox" hidden></ul></div></div>
+  <div class="field"><label for="i-year">Year</label><div class="combo"><input id="i-year" name="year" inputmode="numeric" placeholder="e.g. 2017" maxlength="4" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="l-year"><ul class="combo-list" id="l-year" role="listbox" hidden></ul></div></div>
+  <div class="field"><label for="i-part">Part</label><div class="combo"><input id="i-part" name="part_name" placeholder="e.g. air filter" minlength="2" maxlength="100" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="l-part"><ul class="combo-list" id="l-part" role="listbox" hidden></ul></div></div>
+  <div class="field"><label for="i-oem">OEM part no. (optional)</label><input id="i-oem" name="oem_number" maxlength="40" placeholder="if you know it"></div>
+  <div class="field"><label for="i-city">Your city</label><div class="combo"><input id="i-city" name="customer_city" value="Lahore" maxlength="40" required autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="l-city"><ul class="combo-list" id="l-city" role="listbox" hidden></ul></div></div>
   <label>Min vendor rating<select name="min_vendor_rating"><option value="0">Any</option><option value="4">4.0+</option><option value="4.5">4.5+</option></select></label>
   <label class="chk"><input type="checkbox" name="is_tax_filer" checked> FBR active tax filer</label>
   <label class="chk"><input type="checkbox" name="c_new" checked> New</label>
@@ -48,11 +50,34 @@
   <p class="live-tip" id="live-tip">Deep research across 12 countries takes 1–2 minutes. Keep this tab open; results appear here as soon as they're verified.</p>
 </section>
 
-<div class="tabs" id="tabs" hidden>
-  <button type="button" data-s="cheapest" class="on">Cheapest</button><button type="button" data-s="best_value">Best value</button>
-  <button type="button" data-s="top_rated">Top rated</button><button type="button" data-s="fastest">Fastest</button>
+<div class="results" id="results" hidden>
+  <aside class="side" id="side" aria-label="Filter results">
+    <div class="side-block">
+      <div class="side-h">Price (delivered)</div>
+      <div class="range-out" id="range-out"></div>
+      <div class="dual" id="dual">
+        <input type="range" id="r-min" min="0" max="1000" value="0" aria-label="Minimum price">
+        <input type="range" id="r-max" min="0" max="1000" value="1000" aria-label="Maximum price">
+      </div>
+      <div class="presets" id="presets"></div>
+      <button type="button" class="linkbtn" id="r-reset">Reset price</button>
+    </div>
+    <div class="side-block"><div class="side-h">Seller location</div><div id="f-country"></div></div>
+    <div class="side-block"><div class="side-h">Condition</div><div id="f-cond"></div></div>
+  </aside>
+  <section class="main-col">
+    <div class="tabs" id="tabs">
+      <button type="button" data-s="cheapest" class="on">Cheapest</button><button type="button" data-s="best_value">Best value</button>
+      <button type="button" data-s="top_rated">Top rated</button><button type="button" data-s="fastest">Fastest</button>
+    </div>
+    <figure class="chart" id="chart" hidden>
+      <figcaption><b>Delivered price of every verified offer</b> <span class="mute" id="chart-sub"></span></figcaption>
+      <div class="chart-wrap" id="chart-wrap"></div>
+      <div class="tip" id="tip" role="tooltip" hidden></div>
+    </figure>
+    <div id="out"></div>
+  </section>
 </div>
-<div id="out"></div>
 </main>
 </body>
 </html>

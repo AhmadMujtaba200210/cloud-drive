@@ -51,6 +51,8 @@ class PartQuery(BaseModel):
     min_vendor_rating: float = Field(0.0, ge=0, le=5)
     sort: SortMode = SortMode.cheapest
     scope: SearchScope = SearchScope.local
+    include_social: bool = Field(True, description="Also search Facebook (pages, groups, Marketplace), Instagram, "
+                                                   "TikTok and WhatsApp sellers in Pakistan")
 
     @field_validator("make", "model", "part_name", "oem_number", "customer_city", mode="before")
     @classmethod

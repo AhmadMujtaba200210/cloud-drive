@@ -1,5 +1,6 @@
 """Live research feed, deeper research helpers, and public-server hardening."""
 import asyncio
+import time
 import json
 
 import pytest
@@ -268,3 +269,55 @@ def test_kb_result_reuse_skips_research(monkeypatch):
     assert calls["research"] == 0 and stats["cache"] == "knowledge base"
     assert isinstance(offers[0], Offer) and offers[0].price == 22000
     wds._cache.clear()
+
+
+# ---------------- social toggle, PK phones, price hunt ----------------
+def test_social_toggle_changes_cache_keys_and_defaults_on():
+    from app.sources.web_deep_search import WebDeepSearch, _scope_tag
+    on, off = PartQuery(**BMW), PartQuery(**BMW, include_social=False)
+    assert on.include_social is True
+    assert WebDeepSearch.cache_key(on) != WebDeepSearch.cache_key(off)
+    assert _scope_tag(on) == "local+social" and _scope_tag(off) == "local"
+
+
+def test_pakistani_local_mobile_number_proves_pk():
+    from app.sources.web_deep_search import _phone_cc
+    assert _phone_cc("0300 1234567") == "PK" and _phone_cc("0321-7654321") == "PK"
+    assert _phone_cc("+971 50 123 4567") == "AE"
+    assert _phone_cc("042 111 222 333") is None          # landline / UAN: not enough on its own
+
+
+def test_price_hunt_stops_by_record_value_rule(monkeypatch):
+    """With many verified prices and a low-yield last round, m/(n+m) < 12% -> no further round."""
+    from app.sources import web_deep_search as wds
+    calls = []
+
+    async def research(cc, qs, label, pick, follow):
+        calls.append(qs)
+        return []
+    mk = lambda p: verify({"source_url": f"https://s{p}.pk/x", "vendor_name": f"Shop{p}", "price": p, "currency": "PKR",  # noqa: E731
+                           "price_text": f"Rs {p}", "country_code": "PK", "title": "air filter", "item_sold": "air filter",
+                           "is_requested_part": True},
+                          {f"https://s{p}.pk/x": {"url": f"https://s{p}.pk/x", "markdown": f"Shop{p} air filter Rs {p}"}},
+                          "PK", "g", EST, "air filter")
+    offers = [mk(p) for p in range(1000, 1030)]            # n = 30, first-round m = max(3, 15) = 15 -> 33%: hunt
+    stats = {}
+    q = PartQuery(make="Toyota", model="Corolla", part_name="air filter")
+    asyncio.run(wds.WebDeepSearch()._hunt(q, offers, research, time.time() + 300, stats, True))
+    # round 1 yields 0 new prices -> m = 0 -> p = 0% < 12% -> stop after exactly one round
+    assert len(calls) == 1 and stats["hunt"]["rounds"] == 1
+    assert stats["hunt"]["start_min_pkr"] == 1000
+
+
+@pytest.mark.parametrize("url,post", [
+    ("https://www.facebook.com/marketplace/item/2541595412345678/", True),
+    ("https://www.facebook.com/goldmineautos/posts/suzuki-mehran-headlight-123", True),
+    ("https://www.facebook.com/groups/carpartspk/posts/987654321/", True),
+    ("https://www.instagram.com/reel/DVAjyKSDXK6/", True), ("https://www.instagram.com/p/B5XpSyCnJHy/", True),
+    ("https://www.tiktok.com/@mbh_autos/video/7686810665801059605", True),
+    ("https://www.tiktok.com/discover/suzuki-mehran-parts", False), ("https://www.tiktok.com", False),
+    ("https://www.facebook.com/marketplace/category/suzuki", False), ("https://www.instagram.com/explore/tags/mehran/", False),
+])
+def test_only_real_social_posts_are_kept(url, post):
+    from app import websearch
+    assert websearch._skip(url, allow_social=True) is (not post)
