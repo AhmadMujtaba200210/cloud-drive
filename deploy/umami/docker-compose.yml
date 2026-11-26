@@ -1,0 +1,44 @@
+# Umami web analytics for PartsBridge PK (privacy-friendly: no cookies, no personal data).
+# Dashboard: 127.0.0.1:3001 (and via the portfolio Caddy once the admin password is changed).
+# Tracker: served through PartsBridge's own nginx at /u.js and /api/send (same origin, CSP-safe).
+name: umami
+services:
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-v2.20.2
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://umami:${DB_PASSWORD}@umami-db:5432/umami
+      APP_SECRET: ${APP_SECRET}
+      DISABLE_TELEMETRY: "1"
+      DISABLE_UPDATES: "1"
+      TRACKER_SCRIPT_NAME: u.js
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    networks: [internal, portfolio]
+    mem_limit: 768m
+  umami-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - umami-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+    mem_limit: 512m
+networks:
+  internal: {}
+  portfolio:
+    external: true
+    name: portfolio_default
+volumes:
+  umami-db: {}

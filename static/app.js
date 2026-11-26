@@ -9,7 +9,11 @@ const link = (u, text) => { const s = safeUrl(u); return s ? `<a href="${esc(s)}
 const ICON = {think:"◆", plan:"◇", search:"⌕", pick:"→", read:"▤", follow:"↳", found:"✓", verify:"✓", drop:"×",
               warn:"!", wait:"…", oem:"#", cost:"₨", done:"✓", error:"!"};
 
-let sort = "cheapest", lastQuery = null, busy = false;
+let sort = "cheapest", lastQuery = null, busy = false, searchT0 = 0;
+// Product analytics (self-hosted Umami). Never sends personal data: only the part searched, toggles, outcome counts
+// and which kind of link was clicked. No-op when the tracker is blocked or not loaded (local dev).
+const track = (name, data) => { try { if (window.umami) window.umami.track(name, data); } catch { /* ignore */ } };
+const bucket = p => p == null ? "none" : p < 2000 ? "<2k" : p < 5000 ? "2-5k" : p < 10000 ? "5-10k" : p < 25000 ? "10-25k" : p < 100000 ? "25-100k" : "100k+";
 const tok = new URLSearchParams(location.search).get("token");
 const headers = {"Content-Type": "application/json", ...(tok ? {"X-Access-Token": tok} : {})};
 
@@ -166,6 +170,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // If the stream drops (mobile network, proxy), the server keeps researching and caches the result.
 async function recover(q) {
   feed.push({kind: "wait", text: "The live connection dropped, but the research is still running on the server. Reconnecting…"});
+  track("stream_reconnect");
   for (let n = 0; n < 16; n++) {
     await sleep(n ? 15000 : 5000);
     let r;
@@ -179,7 +184,9 @@ async function recover(q) {
 async function search() {
   if (busy) return;
   const q = body();
-  lastQuery = q; busy = true;
+  lastQuery = q; busy = true; searchT0 = Date.now();
+  track("search_started", {make: q.make, model: q.model, part: q.part_name, year: q.year || "", city: q.customer_city,
+    scope: q.scope, social: q.include_social ? "on" : "off"});
   $("go").disabled = true; $("go").textContent = "Researching…";
   $("results").hidden = true; $("examples").hidden = true; $("out").innerHTML = ""; D = null; F = null;
   feed.start();
@@ -201,7 +208,15 @@ async function search() {
   }
   busy = false;
   $("go").disabled = false; $("go").textContent = "Search";
-  if (err || !result) { feed.finish(false, err || "Search failed."); return; }
+  const secs = Math.round((Date.now() - searchT0) / 1000);
+  if (err || !result) { feed.finish(false, err || "Search failed."); track("search_failed", {reason: String(err || "unknown").slice(0, 80), secs}); return; }
+  {
+    const priced = allPriced(result), ds = (result.diagnostics || {}).web_deep_search || {};
+    const best = priced.length ? Math.min(...priced.map(o => o.total_landed_pkr)) : null;
+    track("search_completed", {secs, priced: priced.length, contact: result.contact_only.length, cheapest: bucket(best),
+      scope: result.query.scope, source: ds.cache || "live", part: result.query.part_name});
+    if (!priced.length && !result.contact_only.length) track("no_results", {make: q.make, model: q.model, part: q.part_name});
+  }
   feed.finish(true, summaryLine(result));
   render(result);
   $("results").scrollIntoView({behavior: "smooth", block: "start"});
@@ -254,16 +269,17 @@ function breakdown(o) {
 function contactBar(o) {
   const v = o.offer.vendor, out = [];
   const page = safeUrl(o.offer.url);
-  if (page) out.push(`<a class="btn" href="${esc(page)}" target="_blank" rel="noopener noreferrer nofollow">Open product page ↗</a>`);
+  const ev = n => `data-ev="${n}" data-cc="${esc(v.country)}" data-social="${/facebook|instagram|tiktok/.test(o.offer.url || "") ? 1 : 0}"`;
+  if (page) out.push(`<a class="btn" ${ev("open_product")} href="${esc(page)}" target="_blank" rel="noopener noreferrer nofollow">Open product page ↗</a>`);
   const site = safeUrl(v.website);
-  if (site && page && new URL(site).origin !== new URL(page).origin) out.push(`<a class="btn ghost" href="${esc(new URL(site).origin)}" target="_blank" rel="noopener noreferrer nofollow">Seller website ↗</a>`);
+  if (site && page && new URL(site).origin !== new URL(page).origin) out.push(`<a class="btn ghost" ${ev("seller_website")} href="${esc(new URL(site).origin)}" target="_blank" rel="noopener noreferrer nofollow">Seller website ↗</a>`);
   if (v.phone) {
     const digits = v.phone.replace(/[^\d+]/g, "");
-    out.push(`<a class="btn ghost" href="tel:${esc(digits)}">Call ${esc(v.phone)}</a>`);
+    out.push(`<a class="btn ghost" ${ev("contact_call")} href="tel:${esc(digits)}">Call ${esc(v.phone)}</a>`);
     const wa = digits.replace(/^\+/, "").replace(/^0(?=3\d{9}$)/, "92");
-    if (/^923\d{9}$/.test(wa)) out.push(`<a class="btn ghost" href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>`);
+    if (/^923\d{9}$/.test(wa)) out.push(`<a class="btn ghost" ${ev("contact_whatsapp")} href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>`);
   }
-  if (v.email) out.push(`<a class="btn ghost" href="mailto:${esc(v.email)}">Email</a>`);
+  if (v.email) out.push(`<a class="btn ghost" ${ev("contact_email")} href="mailto:${esc(v.email)}">Email</a>`);
   return out.length ? `<div class="actions">${out.join("")}</div>` : "";
 }
 
@@ -514,7 +530,10 @@ function score(q, label) {
 function combo(input, list, source, onPick, newestFirst = false) {
   let items = [], active = -1;
   const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; };
-  const pick = it => { input.value = it.value; close(); onPick && onPick(it); input.dispatchEvent(new Event("change")); };
+  const pick = it => {
+    input.value = it.value; close(); onPick && onPick(it); input.dispatchEvent(new Event("change"));
+    track(it.custom ? "autocomplete_custom" : "autocomplete_pick", {field: input.name, value: it.custom ? it.value.slice(0, 60) : it.value});
+  };
   const show = () => {
     const q = input.value;
     const opts = source();
@@ -582,7 +601,19 @@ document.addEventListener("DOMContentLoaded", () => {
     sort = "cheapest"; setTab(); search();
   });
   $("f").year.addEventListener("input", () => $("f").year.setCustomValidity(""));
-  document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => { sort = b.dataset.s; setTab(); if (D) update(); }));
+  document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => { sort = b.dataset.s; setTab(); if (D) update(); track("sort_change", {sort}); }));
+  // one delegated listener for every tracked link / control in the results
+  document.addEventListener("click", e => {
+    const a = e.target.closest("[data-ev]");
+    if (a) track(a.dataset.ev, {country: a.dataset.cc || "", social: a.dataset.social === "1" ? "yes" : "no"});
+    if (e.target.closest("#presets .chip")) track("price_preset", {max: bucket(+e.target.closest(".chip").dataset.max)});
+    if (e.target.closest("[data-setmax],[data-setmin]")) track("budget_suggestion_used");
+    if (e.target.closest("circle.dot")) track("chart_dot_click");
+  });
+  $("f").elements.local_only.addEventListener("change", e => track("toggle_pakistan_only", {on: e.target.checked ? "on" : "off"}));
+  $("f").elements.include_social.addEventListener("change", e => track("toggle_social", {on: e.target.checked ? "on" : "off"}));
+  $("side").addEventListener("change", e => { if (e.target.dataset.cc) track("filter_country", {country: e.target.dataset.cc, on: e.target.checked ? "on" : "off"}); if (e.target.dataset.cond) track("filter_condition", {condition: e.target.dataset.cond}); });
+  let slideT; for (const id of ["r-min", "r-max"]) $(id).addEventListener("change", () => { clearTimeout(slideT); slideT = setTimeout(() => track("price_slider", {min: bucket(F.lo), max: bucket(F.hi)}), 400); });
   for (const id of ["r-min", "r-max"]) $(id).addEventListener("input", () => {
     let a = +$("r-min").value, b = +$("r-max").value;
     if (a > b) { if (id === "r-min") b = a; else a = b; $("r-min").value = a; $("r-max").value = b; }
@@ -591,11 +622,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("r-reset").addEventListener("click", () => { if (!F) return; F.lo = F.min; F.hi = F.max; syncSliders(); update(); });
   document.querySelectorAll(".ex").forEach(b => b.addEventListener("click", () => {
+    track("example_search", {example: b.textContent});
     const q = JSON.parse(b.dataset.q), f = $("f");
     for (const [k, v] of Object.entries(q)) if (f.elements[k]) f.elements[k].value = v;
     f.requestSubmit();
   }));
   let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => D && drawChart(ALL.filter(inFilter)), 150); });
-  window.addEventListener("beforeunload", e => { if (busy) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", e => { if (busy) { track("search_abandoned", {secs: Math.round((Date.now() - searchT0) / 1000)}); e.preventDefault(); e.returnValue = ""; } });
 });
 function setTab() { document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x.dataset.s === sort)); }

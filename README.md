@@ -59,6 +59,16 @@ Maintenance: `python -m app.kb ping | purge`.
 queries for daraz.pk, pakwheels.com, olx.com.pk, plus Facebook / Instagram shops (verified against the search
 engine's public snippet, since those pages need a login). `scope=worldwide` adds the 12-country comparison.
 
+### Traffic analytics: self-hosted Umami
+`deploy/umami/docker-compose.yml` runs Umami 2.20 + its own Postgres (dashboard on 127.0.0.1:3001, no public ports;
+the DB service is named `umami-db` because the shared Docker network already has a `db`). nginx serves the tracker
+from the app's own origin (`/u.js`, `/api/send`, rate-limited), so the strict CSP needs no exception. No cookies,
+Do Not Track honoured, query strings stripped. Product events: `search_started / search_completed / search_failed /
+search_abandoned / no_results`, `open_product / seller_website / contact_call / contact_whatsapp / contact_email`
+(with seller country and whether it was a social post), `sort_change`, `price_slider / price_preset /
+budget_suggestion_used`, `filter_country / filter_condition`, `toggle_pakistan_only / toggle_social`,
+`autocomplete_pick / autocomplete_custom` (custom values show what the make/model/part lists are missing).
+
 ### Live research feed
 `POST /api/search/stream` (Server-Sent Events) narrates the real pipeline as it runs: the planner's strategy,
 each search query, which pages the AI picked and why, every page opened, each price confirmed on its page, claims
