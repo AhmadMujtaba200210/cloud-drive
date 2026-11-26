@@ -77,7 +77,7 @@ def _foreign_store(url: str) -> bool:
     return cc is not None and cc != "PK"
 
 
-PIPELINE_VERSION = "v6"          # bump when research quality changes: older cached results are then not reused
+PIPELINE_VERSION = "v7"          # bump when research quality changes: older cached results are then not reused
 THIN_RESULT_PRICES = 3           # fewer verified prices than this = a thin result...
 THIN_RESULT_TTL_S = 30 * 60      # ...reused for 30 min only, then researched again
 
@@ -417,7 +417,7 @@ def verify(raw: dict, pages_by_url: dict[str, dict], default_cc: str, provider: 
     if not name or (_norm(name) not in text and (len(sname) < 4 or sname not in _squash(text))):
         return drop("vendor_not_on_page")
     kind, kind_why = partmatch.classify(part_name, f"{raw.get('item_sold') or ''} {raw.get('title') or ''}",
-                                        raw.get("item_kind"))
+                                        raw.get("item_kind"), title=raw.get("title") or None)
     if kind == "other":
         return drop("different_part")
     if raw.get("is_requested_part") is False and kind == "exact":

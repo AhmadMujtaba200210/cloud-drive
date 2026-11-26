@@ -59,17 +59,21 @@ def _head(wanted_words: list[str]) -> list[str]:
             and len(w) > 2]
 
 
-def classify(wanted: str, sold: str, llm_kind: str | None = None) -> tuple[str, str]:
+def classify(wanted: str, sold: str, llm_kind: str | None = None, title: str | None = None) -> tuple[str, str]:
+    """`sold` = everything known about the item (AI description + seller title) for spotting component words;
+    `title` = the seller's own title, the only text trusted to prove the listing NAMES the part (the AI's
+    description may add the word "headlight" to a 'Halogen Pair')."""
     want = _words(wanted)
     want_set = {_singular(w) for w in want}
     full = _words(sold)
+    named_in = _words(title) if title else full
     core = _words(INCLUDES.sub("", sold or ""))      # "brake pads with wear sensor": the sensor is an extra
     core_set = {_singular(w) for w in core}
     full_set = {_singular(w) for w in full}
     has_assembly = bool(core_set & ASSEMBLY_WORDS)
     heads = _head(want)
-    text = " ".join(full)
-    joined = "".join(full)
+    text = " ".join(named_in)
+    joined = "".join(named_in)
     names = [a for h in heads for a in HEAD_ALIASES.get(h, [h])]
     if "".join(want).find("taillight") >= 0 or ("tail" in want and "light" in want):
         names += HEAD_ALIASES["taillight"]
@@ -96,7 +100,8 @@ def classify(wanted: str, sold: str, llm_kind: str | None = None) -> tuple[str, 
 
     # 4. LED / halogen / HID with no lamp noun and no assembly word = bulbs ("Suzuki Alto Halogen Pair").
     if core_set & LIGHT_TECH and not head_named and not (core_set & {"assembly", "assy", "assey", "complete", "unit"}):
-        return "component", f"{', '.join(sorted(core_set & LIGHT_TECH))} bulbs, not the complete {wanted}"
+        return "component", (f"the seller's title doesn't say {wanted} ({', '.join(sorted(core_set & LIGHT_TECH))}): "
+                             f"probably bulbs, not the complete {wanted}")
 
     # 5. The title names the part and contains no component word: it IS the part, whatever the AI guessed
     #    ("Suzuki Alto car headlight left side for sale" was once misread as a component).

@@ -553,6 +553,11 @@ def test_named_part_beats_a_wrong_ai_guess():
     assert part_kind("headlight", "Suzuki Alto car headlight left side for sale", "component")[0] == "exact"
     assert part_kind("headlight", "Suzuki Alto front lamp unit", "component")[0] == "exact"   # 'unit' = assembly
     assert part_kind("headlight", "Suzuki Alto part 35120", "component")[0] == "component"   # no part noun: AI decides
+    # Live case: the AI's own description said "halogen headlight pair"; the seller's title only says "Halogen Pair".
+    assert part_kind("headlight", "halogen headlight pair Suzuki Alto Halogen Pair", "complete",
+                     title="Suzuki Alto Halogen Pair")[0] == "component"
+    assert part_kind("headlight", "headlight Suzuki Alto 660 Headlight | Right Side", "complete",
+                     title="Suzuki Alto 660 Headlight | Right Side")[0] == "exact"
 
 
 def test_component_never_becomes_cheapest():
@@ -571,3 +576,21 @@ def test_component_never_becomes_cheapest():
     assert r.cheapest_overall.offer.vendor.name == "PakWheels"
     assert [o.offer.vendor.name for o in r.related] == ["Auto Parts Bank"]
     assert all(o.offer.match_kind == "exact" for o in r.local)
+
+
+def test_same_listing_under_different_seller_spellings_is_shown_once():
+    from app.aggregator import assemble
+    def offer(vendor, url, title, price):
+        page = {"url": url, "markdown": f"{vendor} {title} Rs {price:,} Karachi Pakistan"}
+        return verify({"source_url": url, "vendor_name": vendor, "price": price, "currency": "PKR",
+                       "price_text": f"Rs {price:,}", "country_code": "PK", "title": title, "item_sold": title,
+                       "is_requested_part": True}, {url: page}, "PK", "g", EST, "headlight", model="Alto")
+    t = "Headlight New Alto Right Side DEPOTHAI"
+    offers = [offer("pkgreenautos", "https://pkgreenautos.com/p/1", "SUZUKI · " + t, 6300),
+              offer("PK Green Autos", "https://pkgreenautos.com/p/1", t, 6300),
+              offer("PKGreen Autos", "https://www.pkgreenautos.com/p/1/", t, 6300),
+              offer("PakWheels", "https://www.pakwheels.com/a/9", "Suzuki Alto Front Headlight Assey RH", 6499),
+              offer("PakWheels Autostore", "https://www.pakwheels.com/a/9", "Suzuki Alto Front Headlight Assey RH", 6499),
+              offer("PakWheels", "https://www.pakwheels.com/a/10", "Suzuki Alto Front Headlight Assey LH", 6499)]
+    r = assemble(PartQuery(make="Suzuki", model="Alto", year=2020, part_name="headlight"), offers, {}, ["t"])
+    assert len(r.local) == 3          # PKGreen once, PakWheels RH once, PakWheels LH (a different listing) kept

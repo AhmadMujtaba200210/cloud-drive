@@ -82,12 +82,32 @@ def analyse(local: list[LandedOption], intl: list[LandedOption], contact: list[L
 
 
 def dedupe(opts: list[LandedOption]) -> list[LandedOption]:
-    """Same vendor + country + item price from several sources/pages -> keep the first."""
+    """One card per real listing. The AI spells a seller several ways ("pkgreenautos", "PK Green Autos") and
+    marketplaces show one listing under two names ("PakWheels" / "PakWheels Autostore"), so a duplicate is:
+    the same page at the same price, OR the same website + price + listing title. Keeps the first (best-evidenced)."""
+    import re
+    from urllib.parse import unquote, urlparse
+
+    def site(u: str | None) -> str:
+        h = (urlparse(u or "").hostname or "").lower().removeprefix("www.")
+        return ".".join(h.split(".")[-3:]) if h.endswith((".com.pk", ".co.uk")) else ".".join(h.split(".")[-2:])
+
+    def squash(t: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", (t or "").lower())
+
     seen, out = set(), []
     for o in opts:
-        k = (o.offer.vendor.name.strip().lower(), o.offer.vendor.country, o.item_price_pkr)
-        if k in seen:
+        price = o.item_price_pkr
+        url = re.sub(r"^https?://(www\.)?", "", unquote(o.offer.url or "").lower()).rstrip("/")
+        keys = set()
+        if url:
+            keys.add(("page", url, price))
+        else:                                   # no page to compare (e.g. catalogue records): seller + price
+            keys.add(("vendor", squash(o.offer.vendor.name), o.offer.vendor.country, price))
+        if o.offer.url and price is not None:
+            keys.add(("listing", site(o.offer.url), price, squash(o.offer.title)[-40:]))
+        if keys & seen:
             continue
-        seen.add(k)
+        seen |= keys
         out.append(o)
     return out
