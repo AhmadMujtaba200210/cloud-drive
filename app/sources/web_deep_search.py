@@ -27,7 +27,7 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
-from .. import firecrawl, llm, progress, websearch
+from .. import firecrawl, llm, progress, searchproviders, vehicles, websearch
 from ..kb import kb as KB, query_key, sha1
 from ..config import countries, load
 from ..models import Authenticity, Condition, Offer, PartQuery, SearchScope, Vendor
@@ -60,10 +60,41 @@ SOCIAL_PICK = 8
 HUNT_MAX_ROUNDS = 3
 HUNT_STOP_P = 0.12
 HUNT_MIN_SECONDS = 40
+# Pakistan-only mode: big overseas stores rank well in English searches but cannot be a Pakistani seller.
+FOREIGN_STORES = ("rockauto.com", "partsgeek.com", "toyotapartsnow.com", "toyotapartsdeal.com", "hondapartsnow.com",
+                  "a-premium.com", "go-parts.com", "autozone.com", "advanceautoparts.com", "oreillyauto.com", "carparts.com",
+                  "amazon.", "ebay.", "aliexpress.", "alibaba.", "made-in-china.", "walmart.", "megazip.", "amayama.",
+                  "partsouq.", "b2bmap.", "partschai.", "hbscoolingparts.", "dhgate.", "temu.", "1aauto.", "summitracing.")
+PAID_QUERIES_LOCAL, PAID_QUERIES_WORLD = 3, 1      # first N queries per country also go to Google (Nimble) + Tavily
+
+
+def _foreign_store(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    if any(host == s.rstrip(".") or host.startswith(s) or host.endswith("." + s.rstrip(".")) or ("." + s) in "." + host
+           for s in FOREIGN_STORES):
+        return True
+    cc = _host_cc(url)
+    return cc is not None and cc != "PK"
+
+
+PIPELINE_VERSION = "v4"          # bump when research quality changes: older cached results are then not reused
+THIN_RESULT_PRICES = 3           # fewer verified prices than this = a thin result...
+THIN_RESULT_TTL_S = 30 * 60      # ...reused for 30 min only, then researched again
 
 
 def _scope_tag(q: PartQuery) -> str:
-    return q.scope.value + ("+social" if q.include_social else "")
+    return q.scope.value + ("+social" if q.include_social else "") + "|" + PIPELINE_VERSION
+
+
+def _canonical(q: PartQuery) -> PartQuery:
+    """Same vehicle, same cache entry: 'corolla indus' and 'Toyota Corolla' share results."""
+    v = vehicles.normalize(q.make, q.model, q.year)
+    return q.model_copy(update={"make": v["make"], "model": v["model"]})
+
+
+def _fresh_enough(age_s: float, offers: list, ttl: float) -> bool:
+    priced = sum(getattr(o, "price", None) is not None for o in offers)
+    return age_s < (ttl if priced >= THIN_RESULT_PRICES else min(ttl, THIN_RESULT_TTL_S))
 _cache: dict[str, tuple[float, list[Offer], dict]] = {}
 _inflight: dict[str, asyncio.Future] = {}
 _bg: set[asyncio.Task] = set()
@@ -157,16 +188,17 @@ async def expand_queries(q: PartQuery, ccs: list[str], per_country: int = 2) -> 
         return fallback
 
 
-PRICE_RE = re.compile(r"(?:[$€£¥₩฿₺]|\b(?:USD|AED|SAR|JPY|EUR|GBP|CNY|RMB|THB|MYR|RM|TRY|TL|KRW|PKR|Rs\.?|Dhs?)\b)\s?\d[\d,.]*"
+PRICE_RE = re.compile(r"(?:[$€£¥₩฿₺₨]|\b(?:USD|AED|SAR|JPY|EUR|GBP|CNY|RMB|THB|MYR|RM|TRY|TL|KRW|PKR|Rs[.:]?|Dhs?)\b)\s?\d[\d,.]*"
                       r"|\d[\d,.]*\s?(?:円|元|원|บาท|\b(?:AED|USD|EUR|JPY|PKR|SAR|TL)\b)", re.I)
 CONTACT_RE = re.compile(r"\+?\d[\d\s().-]{7,}\d|@|\b(contact|address|tel|phone|whatsapp|call|email|street|road|ave|"
                         r"industrial area|ships? from|location|住所|電話|adresse|telefon)\b", re.I)
 
 
 def condense(md: str, part_words: list[str], budget: int = MAX_PAGE_CHARS, contact_budget: int = 900) -> str:
-    """Keep the lines that matter for extraction instead of cutting by position (full pages start with navigation
-    and end with the dealer's contact footer): part/price lines with 1 line of context, plus a reserved budget of
-    contact/address lines taken from the END of the page, where footers live."""
+    """Pick the lines that matter, by relevance rather than position. Long pages (marketplaces, category pages) start
+    with navigation and list many other products with prices; taking lines top-down used to fill the budget before
+    reaching the wanted item. Now: the title lines, then windows around lines that name the part AND show a price
+    (highest score first), then part-only / price-only lines, plus the dealer's contact footer."""
     if len(md) <= budget:
         return md
     lines = [re.sub(r"\]\((https?://[^)]{40,})\)", "]", ln).strip() for ln in md.splitlines()]
@@ -178,19 +210,36 @@ def condense(md: str, part_words: list[str], budget: int = MAX_PAGE_CHARS, conta
         if ln and CONTACT_RE.search(ln) and used + len(ln) <= contact_budget:
             contact_idx.append(i)
             used += len(ln) + 1
-    content = set(range(min(6, len(lines))))
-    for i, ln in enumerate(lines):
-        low = ln.lower()
-        if any(w in low for w in words) or PRICE_RE.search(ln):
-            content.update((i - 1, i, i + 1))
-    out_idx, size = set(contact_idx), used
-    for i in sorted(k for k in content if 0 <= k < len(lines)):
-        if i in out_idx or not lines[i]:
+    n = len(lines)
+    hits = [sum(w in ln.lower() for w in words) for ln in lines]
+    price = [bool(PRICE_RE.search(ln)) for ln in lines]
+    score = {}
+    for i in range(n):
+        if not lines[i]:
             continue
-        if size + len(lines[i]) > budget:
+        near_price = any(price[j] for j in range(max(0, i - 3), min(n, i + 4)))
+        near_part = max(hits[max(0, i - 3):min(n, i + 4)] or [0])
+        s_ = 0.0
+        if hits[i] and near_price:
+            s_ = 10 + hits[i]                       # the wanted item with its price
+        elif price[i] and near_part:
+            s_ = 8 + near_part                      # a price right next to the wanted item
+        elif hits[i]:
+            s_ = 3 + hits[i]
+        elif price[i]:
+            s_ = 1
+        if i < 6:
+            s_ = max(s_, 5)                         # page title / heading
+        if s_:
+            score[i] = s_
+    out_idx, size = set(contact_idx), used
+    for i in sorted(score, key=lambda k: (-score[k], k)):
+        for j in ((i - 1, i, i + 1) if score[i] >= 8 else (i,)):   # keep 1 line of context around strong hits
+            if 0 <= j < n and j not in out_idx and lines[j] and size + len(lines[j]) <= budget:
+                out_idx.add(j)
+                size += len(lines[j]) + 1
+        if size >= budget:
             break
-        out_idx.add(i)
-        size += len(lines[i]) + 1
     return "\n".join(lines[i] for i in sorted(out_idx) if lines[i])
 
 
@@ -203,7 +252,9 @@ def _extract_prompt(q: PartQuery, cc: str, pages: list[dict], aliases: list[str]
     words = _part_words(q, aliases)
     for i, p in enumerate(pages):
         body = condense(p.get('markdown') or p.get('description') or '', words).replace("</page>", "")
-        blocks.append(f"<page index=\"{i}\">\nURL: {p['url']}\nTITLE: {p.get('title') or ''}\n{body}\n</page>")
+        snip = (p.get("description") or "").replace("</page>", "")[:500] if p.get("markdown") else ""
+        blocks.append(f"<page index=\"{i}\">\nURL: {p['url']}\nTITLE: {p.get('title') or ''}\n"
+                      + (f"SEARCH SNIPPET: {snip}\n" if snip else "") + f"{body}\n</page>")
     return (
         f"Wanted part: <buyer>{q.make} {q.model} {q.year or ''} {q.part_name} (OEM {q.oem_number or 'unknown'})</buyer>. "
         f"Also known as: {', '.join(aliases or []) or 'n/a'}. Search country: {cc}.\n"
@@ -537,8 +588,9 @@ class WebDeepSearch(SourceAdapter):
 
     @staticmethod
     def cache_key(q: PartQuery) -> str:
-        return q.model_dump_json(include={"make", "model", "year", "part_name", "oem_number", "scope",
-                                          "include_social"}).lower()
+        c = _canonical(q)
+        return PIPELINE_VERSION + c.model_dump_json(include={"make", "model", "year", "part_name", "oem_number", "scope",
+                                                             "include_social"}).lower()
 
     def is_cached(self, q: PartQuery) -> bool:
         hit = _cache.get(self.cache_key(q))
@@ -550,22 +602,27 @@ class WebDeepSearch(SourceAdapter):
     async def run(self, q: PartQuery) -> tuple[list[Offer], dict]:
         key = self.cache_key(q)
         hit = _cache.get(key)
-        if hit and time.time() - hit[0] < CACHE_TTL_S:
+        if hit and _fresh_enough(time.time() - hit[0], hit[1], CACHE_TTL_S):
             mins = int((time.time() - hit[0]) // 60)
             progress.say("think", f"I researched this exact part {mins} min ago, so I'm reusing those verified results "
                                   f"({len(hit[1])} offers) instead of searching again.")
             return hit[1], {**hit[2], "cache": "hit"}
+        cq = _canonical(q)
         if KB.configured():
-            found = await KB.find_result(q.make, q.model, q.year, q.part_name, _scope_tag(q), q.oem_number)
+            found = await KB.find_result(cq.make, cq.model, cq.year, cq.part_name, _scope_tag(cq), cq.oem_number)
             if found:
                 raw, stats, matched, age = found
                 try:                                     # validator: stored records must still match the schema
                     offers = [Offer.model_validate(o) for o in raw]
                 except Exception:                        # noqa: BLE001 - stale schema -> research afresh
                     offers = None
+                if offers is not None and not _fresh_enough(age, offers, 12 * 3600):
+                    progress.say("think", f"The knowledge base has only {sum(o.price is not None for o in offers)} "
+                                          f"verified price(s) for this part from earlier; searching again for more.")
+                    offers = None
                 if offers is not None:
                     h, m = int(age // 3600), int(age % 3600 // 60)
-                    progress.say("think", f"The knowledge base already has verified results for “{q.make} {q.model} "
+                    progress.say("think", f"The knowledge base already has verified results for “{cq.make} {cq.model} "
                                           f"{matched}” from {f'{h} h ' if h else ''}{m} min ago ({len(offers)} offers). "
                                           f"Reusing them: no AI calls or page scraping needed.")
                     _cache[key] = (time.time(), offers, stats)
@@ -580,9 +637,9 @@ class WebDeepSearch(SourceAdapter):
             offers, stats = await self._research(q)
             _cache[key] = (time.time(), offers, stats)
             if KB.configured() and offers:
-                _background(KB.put_result(q.make, q.model, q.year, q.part_name, _scope_tag(q), q.oem_number,
+                _background(KB.put_result(cq.make, cq.model, cq.year, cq.part_name, _scope_tag(cq), cq.oem_number,
                                           [o.model_dump(mode="json") for o in offers], stats))
-                _background(KB.put_sources(q.make, q.model, q.part_name, offers))
+                _background(KB.put_sources(cq.make, cq.model, cq.part_name, offers))
             if len(_cache) > 500:
                 _cache.pop(min(_cache, key=lambda k: _cache[k][0]), None)
             fut.set_result((offers, stats))
@@ -596,6 +653,11 @@ class WebDeepSearch(SourceAdapter):
 
     async def _research(self, q: PartQuery) -> tuple[list[Offer], dict]:
         t0 = time.time()
+        veh = vehicles.normalize(q.make, q.model, q.year)
+        if veh["note"]:
+            progress.say("think", veh["note"] + ".")
+        q = q.model_copy(update={"make": veh["make"], "model": veh["model"]})
+        gen = veh["generation"]
         budget = _env_int("DEEP_SEARCH_BUDGET_S", 170)
         local = q.scope == SearchScope.local
         ccs = ["PK"] if local else _countries()
@@ -633,7 +695,7 @@ class WebDeepSearch(SourceAdapter):
         stats = {"countries": ccs, "queries": 0, "search_results": 0, "pages_selected": 0, "pages_scraped": 0,
                  "pages_followed": 0, "scraper": None, "extracted": 0, "kept": 0, "priced_kept": 0,
                  "dropped_ungrounded": 0, "llm_providers": {}, "llm_errors": 0, "per_country": {},
-                 "drop_reasons": {}, "oem_pass": None, "timed_out": []}
+                 "drop_reasons": {}, "oem_pass": None, "timed_out": [], "providers": {}}
         sem_search, sem_scrape, sem_llm = asyncio.Semaphore(4), asyncio.Semaphore(8), asyncio.Semaphore(5)
         oem_seen: Counter = Counter()
         oem_sites: dict[str, set] = {}
@@ -667,7 +729,10 @@ class WebDeepSearch(SourceAdapter):
                     page = await firecrawl.scrape(client, c["url"]) if use_fc else None
                     if use_fc and page and len(page.get("markdown") or "") < 400:     # JS shell: give it time to render
                         page = await firecrawl.scrape(client, c["url"], wait_ms=2500) or page
-                    page = page or await websearch.plain_fetch(client, c["url"])
+                    if not page or len(page.get("markdown") or "") < 400:
+                        alt = await websearch.plain_fetch(client, c["url"])
+                        if alt and len(alt.get("markdown") or "") > len((page or {}).get("markdown") or ""):
+                            page = alt
                 if page:
                     page["description"] = c.get("snippet", "")
                     if kbon:
@@ -702,19 +767,26 @@ class WebDeepSearch(SourceAdapter):
             def part_key(cc: str) -> str:
                 return sha1(plan_key + "|" + cc)
 
-            async def research(cc: str, queries: list[str], label: str, pick: int, follow: int) -> list[Offer]:
+            async def research(cc: str, queries: list[str], label: str, pick: int, follow: int,
+                               paid: int = 0) -> list[Offer]:
                 cands: dict[str, dict] = {}
-                async def run_query(query: str) -> list[dict]:
+
+                async def run_query(query: str, primary: bool = False) -> list[dict]:
                     async with sem_search:
                         stats["queries"] += 1
-                        if use_searx:
-                            return await websearch.searxng(client, query, cc, allow_social=q.include_social and cc == "PK")
+                        if use_searx or primary:
+                            return await searchproviders.search(client, query, cc, primary=primary,
+                                                                allow_social=q.include_social and cc == "PK",
+                                                                stats=stats["providers"])
                         return [{"url": r.get("url", ""), "title": r.get("title", ""), "snippet": r.get("description", ""),
                                  "markdown": r.get("markdown")} for r in await firecrawl.search(client, query, country=cc)]
 
                 def add(res: list[dict]) -> None:
                     for r in res:
                         if not (r.get("url") and syntactically_public(r["url"])):
+                            continue
+                        if local and cc == "PK" and not websearch.is_social(r["url"]) and _foreign_store(r["url"]):
+                            stats["foreign_skipped"] = stats.get("foreign_skipped", 0) + 1
                             continue
                         u = r["url"].strip()
                         if u not in cands:
@@ -723,9 +795,10 @@ class WebDeepSearch(SourceAdapter):
                             # several engines describe the same post differently: keep every public snippet
                             cands[u]["snippet"] = ((cands[u].get("snippet") or "") + " … " + r["snippet"])[:1500]
 
-                for query in queries:
-                    progress.say("search", f"Searching {label}: “{query}”", country=cc)
-                    add(await run_query(query))
+                for i, query in enumerate(queries):
+                    progress.say("search", f"Searching {label}: “{query}”" + (" (Google + Tavily + open engines)"
+                                                                           if i < paid else ""), country=cc)
+                    add(await run_query(query, primary=i < paid))
                 if not cands:
                     # Engines throttle bursts (CAPTCHA / "too many requests"): pause, then try a plainer query.
                     plain = f"{q.make} {q.model} {q.part_name} " + ("" if cc == "PK" else _cname(cc))
@@ -828,6 +901,9 @@ class WebDeepSearch(SourceAdapter):
 
             async def one_country(cc: str) -> list[Offer]:
                 queries = list(plan["queries"][cc])
+                if gen:                                    # sellers list by generation: "Corolla 2002-2008 AC condenser"
+                    queries.insert(0, f"{q.make} {q.model} {gen[0]}-{gen[1]} {q.part_name} price"
+                                      + (" Pakistan" if cc == "PK" else ""))
                 if q.oem_number:
                     queries.append(f"{q.oem_number} {q.make}")
                 core = " ".join(filter(None, [q.make, q.model, str(q.year or ""), q.part_name]))
@@ -836,7 +912,8 @@ class WebDeepSearch(SourceAdapter):
                     if q.include_social:
                         queries += [t.format(core=core, make=q.make, model=q.model, part=q.part_name)
                                     for t in SOCIAL_QUERY_TEMPLATES]
-                return await research(cc, queries, _cname(cc), per_country_pages, follow_per_country)
+                return await research(cc, queries, _cname(cc), per_country_pages, follow_per_country,
+                                      paid=PAID_QUERIES_LOCAL if local else PAID_QUERIES_WORLD)
 
             offers = await self._gather_with_deadline(
                 {cc: one_country(cc) for cc in ccs}, t0 + budget * 0.75, stats)
@@ -852,7 +929,7 @@ class WebDeepSearch(SourceAdapter):
 
                 async def oem_country(cc: str) -> list[Offer]:
                     return await research(cc, [f"\"{best}\"", f"{best} {q.make} price"],
-                                          f"{_cname(cc)} (part no. {best})", 4, 2)
+                                          f"{_cname(cc)} (part no. {best})", 4, 2, paid=1 if cc == "PK" else 0)
                 more = await self._gather_with_deadline(
                     {cc: oem_country(cc) for cc in (["PK"] if local else OEM_PASS_COUNTRIES) if cc in ccs or cc == "PK"},
                     t0 + budget, stats)
@@ -871,6 +948,9 @@ class WebDeepSearch(SourceAdapter):
         stats["kept"] = len(offers)
         stats["priced_kept"] = sum(o.price is not None for o in offers)
         stats["seconds"] = round(time.time() - t0, 1)
+        stats["provider_status"] = searchproviders.status()
+        if veh["note"]:
+            stats["vehicle"] = {"make": q.make, "model": q.model, "generation": gen, "note": veh["note"]}
         stats["knowledge_base"] = kbs if kbon else "off"
         stats["saved_llm_calls"] = saved
         progress.say("done", f"Research finished in {stats['seconds']:.0f} s: {stats['pages_scraped']} pages read, "
@@ -914,6 +994,9 @@ class WebDeepSearch(SourceAdapter):
                                       f"round beats PKR {prices[0]:,.0f} = {m}/({n}+{m}) = {p_new:.0%}, below "
                                       f"{HUNT_STOP_P:.0%}, so the cheapest price is very likely found.")
                 break
+            if n < 3 and rnd > 0 and last_yield == 0:
+                progress.say("think", f"Price hunt: only {n} verified price{'s' if n != 1 else ''} so far, too few to "
+                                      f"judge whether a cheaper one exists, so I keep looking in new places.")
             cheapest = min(pool, key=pk) if pool else None
             seen_hosts = list(dict.fromkeys(_site(urlparse(o.url).hostname or "") for o in pool if o.url))[:3]
             excl = " ".join(f"-site:{h}" for h in seen_hosts)
@@ -926,13 +1009,14 @@ class WebDeepSearch(SourceAdapter):
             else:
                 qs = [f"{q.part_name} {q.make} {q.model} cheap {excl}".strip(), f"{core} discount sale"]
             msg = (f"Price hunt round {rnd + 1}: cheapest so far PKR {pk(cheapest):,.0f} from {cheapest.vendor.name}. "
-                   f"With {n} verified prices, chance a new round finds cheaper ≈ {m}/({n}+{m}) = {p_new:.0%}. "
+                   + (f"With {n} verified prices, chance a new round finds cheaper ≈ {m}/({n}+{m}) = {p_new:.0%}. "
+                      if n >= 3 else "")
                    if cheapest else f"Price hunt round {rnd + 1}: no verified price yet, searching cheaper sources. ")
             progress.say("think", msg + "Searching sources that tend to be cheaper"
                          + (f" and skipping {', '.join(seen_hosts)}" if seen_hosts and rnd else "") + ".")
             cc = "PK" if local or not cheapest else cheapest.vendor.country
             before = {(o.vendor.name.lower(), o.url) for o in offers + found}
-            got = await research(cc, qs, f"{_cname(cc)} (price hunt {rnd + 1})", 8, 4)
+            got = await research(cc, qs, f"{_cname(cc)} (price hunt {rnd + 1})", 8, 4, paid=1 if rnd == 0 else 0)
             new = [o for o in got if (o.vendor.name.lower(), o.url) not in before]
             found += new
             last_yield = sum(o.price is not None for o in new)

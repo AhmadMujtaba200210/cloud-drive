@@ -72,6 +72,22 @@ Public view: Umami's read-only share page on its own host (portfolio Caddy). Onl
 stats for this one site are proxied; `/login`, `/api/auth/*` and every other admin route return 404 there, so the
 admin UI is reachable only through an SSH tunnel to 127.0.0.1:3001.
 
+### Search providers (app/searchproviders.py)
+SearXNG (free, self-hosted) runs every query; Nimble (`/v2/serp`, real Google results localized with `country`)
+and Tavily (`/search`, `country=pakistan`) run the most important queries of each search (3 per country in
+Pakistan-only mode, 1 worldwide). Google `/goto?url=` links are resolved via their 302. Every paid provider has a
+shared per-minute token bucket, a daily budget (`NIMBLE_DAILY_CAP=160`, `TAVILY_DAILY_CAP=30`, i.e. inside the free
+tiers) and a circuit breaker (429 -> Retry-After; 401/402/432/433 -> 30 min; errors -> 60 s), so with many users one
+throttled provider never stalls a search. Results are merged by URL (Google order first, every engine's snippet kept
+as evidence) and cached for 3 days in memory + the Oracle knowledge base. Keys live only in `/etc/partsbridge/env`.
+
+### Pakistani naming (app/vehicles.py)
+"Corolla Indus" / "Indus Corolla" -> Toyota Corolla, "Pak Suzuki" -> Suzuki, "Honda Atlas" -> Honda, trims such as
+"Civic Reborn" -> Civic. Year -> generation range ("Corolla 2002" -> 2002-2008), because sellers list parts that way;
+a generation-range query is searched first. Pakistan-only mode drops overseas stores (RockAuto, eBay, Amazon,
+PartsGeek…) and foreign ccTLDs before triage. Cache keys use the canonical vehicle and a pipeline version; a stored
+result with fewer than 3 verified prices is only reused for 30 minutes.
+
 ### Live research feed
 `POST /api/search/stream` (Server-Sent Events) narrates the real pipeline as it runs: the planner's strategy,
 each search query, which pages the AI picked and why, every page opened, each price confirmed on its page, claims

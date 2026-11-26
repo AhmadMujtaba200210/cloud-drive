@@ -157,7 +157,7 @@ DDL = [
     """CREATE TABLE pb_extraction (content_hash VARCHAR2(40), part_key VARCHAR2(40), offers CLOB CHECK (offers IS JSON),
          provider VARCHAR2(60), created_at NUMBER NOT NULL, CONSTRAINT pb_extraction_pk PRIMARY KEY (content_hash, part_key))""",
     f"""CREATE TABLE pb_result (k VARCHAR2(40) PRIMARY KEY, mk VARCHAR2(60), mdl VARCHAR2(80), yr NUMBER(4),
-         scope VARCHAR2(12), part_text VARCHAR2(200), part_sig VARCHAR2(200), offers CLOB CHECK (offers IS JSON),
+         scope VARCHAR2(40), part_text VARCHAR2(200), part_sig VARCHAR2(200), offers CLOB CHECK (offers IS JSON),
          stats CLOB CHECK (stats IS JSON), created_at NUMBER NOT NULL, emb VECTOR({EMB_DIM}, FLOAT32))""",
     "CREATE INDEX pb_result_mmy ON pb_result (mk, mdl, yr, scope)",
     f"""CREATE TABLE pb_source (url_hash VARCHAR2(40) PRIMARY KEY, url VARCHAR2(2000), vendor VARCHAR2(200),

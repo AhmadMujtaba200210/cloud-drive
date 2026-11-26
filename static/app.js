@@ -439,8 +439,10 @@ function renderList(shown, eligible) {
   h += `<h2>Notes</h2><ul class="mute">${d.disclaimers.map(x => `<li>${esc(x)}</li>`).join("")}<li>FX: ${esc(d.fx_as_of)}. Sources: ${d.sources_used.map(esc).join(", ")}</li></ul>`;
   const ds = (d.diagnostics || {}).web_deep_search;
   if (ds && !ds.error) {
+    const pv = ds.providers || {};
+    const prov = (pv.nimble || pv.tavily || pv.cached) ? ` · Google (Nimble) ${esc(pv.nimble || 0)}, Tavily ${esc(pv.tavily || 0)}, cached ${esc(pv.cached || 0)}` : "";
     const hunt = ds.hunt && ds.hunt.rounds ? ` · price hunt: ${esc(ds.hunt.rounds)} extra round(s), cheapest ${pkr(ds.hunt.start_min_pkr)} → ${pkr(ds.hunt.end_min_pkr)}` : "";
-    h += `<details><summary>Web research stats</summary><div class="mute">${esc(ds.queries)} searches → ${esc(ds.search_results)} results → ${esc(ds.pages_selected)} pages picked + ${esc(ds.pages_followed ?? 0)} product pages followed → ${esc(ds.pages_scraped)} read (${esc(ds.scraper)}) → ${esc(ds.extracted)} extracted → ${esc(ds.kept)} kept (${esc(ds.dropped_ungrounded)} discarded as not on the page)${ds.oem_pass && ds.oem_pass.oem ? ` · part-number pass ${esc(ds.oem_pass.oem)}: +${esc(ds.oem_pass.new_offers ?? 0)}` : ""}${hunt}${ds.saved_llm_calls ? ` · ${esc(ds.saved_llm_calls)} AI calls saved by the knowledge base` : ""} · ${esc(ds.seconds ?? "?")} s${ds.cache ? ` · ${esc(ds.cache)}` : ""}</div></details>`;
+    h += `<details><summary>Web research stats</summary><div class="mute">${esc(ds.queries)} searches → ${esc(ds.search_results)} results → ${esc(ds.pages_selected)} pages picked + ${esc(ds.pages_followed ?? 0)} product pages followed → ${esc(ds.pages_scraped)} read (${esc(ds.scraper)}) → ${esc(ds.extracted)} extracted → ${esc(ds.kept)} kept (${esc(ds.dropped_ungrounded)} discarded as not on the page)${ds.oem_pass && ds.oem_pass.oem ? ` · part-number pass ${esc(ds.oem_pass.oem)}: +${esc(ds.oem_pass.new_offers ?? 0)}` : ""}${hunt}${prov}${ds.saved_llm_calls ? ` · ${esc(ds.saved_llm_calls)} AI calls saved by the knowledge base` : ""} · ${esc(ds.seconds ?? "?")} s${ds.cache ? ` · ${esc(ds.cache)}` : ""}</div></details>`;
   }
   return h;
 }

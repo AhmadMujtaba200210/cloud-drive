@@ -254,9 +254,10 @@ def test_kb_result_reuse_skips_research(monkeypatch):
                     {"https://autostore.pk/x": {"url": "https://autostore.pk/x", "markdown": "Autostore Civic brake pads Rs 22,000"}},
                     "PK", "g", EST, "brake pads")
     calls = {"research": 0}
+    age = {"s": 600.0}                                    # 10 min old: reused even though it has 1 price
 
     async def fake_find(*a):
-        return [stored.model_dump(mode="json")], {"kept": 1}, "brake pad set", 3600.0
+        return [stored.model_dump(mode="json")], {"kept": 1}, "brake pad set", age["s"]
 
     async def boom(self, q):
         calls["research"] += 1
@@ -277,7 +278,7 @@ def test_social_toggle_changes_cache_keys_and_defaults_on():
     on, off = PartQuery(**BMW), PartQuery(**BMW, include_social=False)
     assert on.include_social is True
     assert WebDeepSearch.cache_key(on) != WebDeepSearch.cache_key(off)
-    assert _scope_tag(on) == "local+social" and _scope_tag(off) == "local"
+    assert _scope_tag(on).startswith("local+social|") and _scope_tag(off).startswith("local|")
 
 
 def test_pakistani_local_mobile_number_proves_pk():
@@ -292,7 +293,7 @@ def test_price_hunt_stops_by_record_value_rule(monkeypatch):
     from app.sources import web_deep_search as wds
     calls = []
 
-    async def research(cc, qs, label, pick, follow):
+    async def research(cc, qs, label, pick, follow, paid=0):
         calls.append(qs)
         return []
     mk = lambda p: verify({"source_url": f"https://s{p}.pk/x", "vendor_name": f"Shop{p}", "price": p, "currency": "PKR",  # noqa: E731
@@ -321,3 +322,106 @@ def test_price_hunt_stops_by_record_value_rule(monkeypatch):
 def test_only_real_social_posts_are_kept(url, post):
     from app import websearch
     assert websearch._skip(url, allow_social=True) is (not post)
+
+
+# ---------------- Pakistani naming, foreign stores, search-provider router ----------------
+@pytest.mark.parametrize("make,model,year,exp_make,exp_model,gen", [
+    ("Toyota", "Corolla Indus", 2002, "Toyota", "Corolla", (2002, 2008)),
+    ("corolla", "indus", 2002, "Toyota", "Corolla", (2002, 2008)),
+    ("Indus", "Corolla", 2005, "Toyota", "Corolla", (2002, 2008)),
+    ("Honda", "Civic Reborn", 2010, "Honda", "Civic", (2006, 2012)),
+    ("Pak Suzuki", "Mehran VXR", 2015, "Suzuki", "Mehran", (1989, 2019)),
+    ("BMW", "i7", 2024, "BMW", "i7", None),
+])
+def test_pakistani_vehicle_naming(make, model, year, exp_make, exp_model, gen):
+    from app.vehicles import normalize
+    v = normalize(make, model, year)
+    assert (v["make"], v["model"]) == (exp_make, exp_model)
+    assert (v["generation"][:2] if v["generation"] else None) == gen
+
+
+@pytest.mark.parametrize("url,foreign", [
+    ("https://www.rockauto.com/en/catalog/toyota", True), ("https://www.ebay.com/itm/1", True),
+    ("https://ve.ebay.com/b/x", True), ("https://www.amazon.ae/x", True), ("https://shop.co.uk/x", True),
+    ("https://www.pakwheels.com/x", False), ("https://www.daraz.pk/x", False), ("https://autostore.pk/x", False),
+    ("https://www.olx.com.pk/item/x", False), ("https://ndestore.com/x", False),
+])
+def test_foreign_store_filter(url, foreign):
+    from app.sources.web_deep_search import _foreign_store
+    assert _foreign_store(url) is foreign
+
+
+def test_provider_bucket_limits_budget_and_pauses():
+    from app.searchproviders import Bucket
+    b = Bucket(per_minute=2, daily_cap=3)
+    assert b.available()[0]; b.take()
+    assert b.available()[0]; b.take()
+    assert b.available() == (False, "rate limit")              # per-minute tokens exhausted
+    b.tokens = 5
+    assert b.available()[0]; b.take()
+    assert b.available() == (False, "daily budget used")       # daily cap reached
+    b2 = Bucket(per_minute=10, daily_cap=100)
+    b2.fail(432)                                               # Tavily out of credits -> long pause
+    ok, why = b2.available()
+    assert not ok and "quota" in why
+
+
+def test_router_merges_providers_and_survives_failures(monkeypatch):
+    import httpx
+    from app import searchproviders as sp, websearch
+    async def searx(client, q, cc, pages=1, allow_social=False):
+        return [{"url": "https://www.pakwheels.com/a", "title": "A", "snippet": "from searx", "engine": "bing"}]
+    async def nimble(client, q, cc):
+        return [{"url": "https://www.pakwheels.com/a", "title": "A", "snippet": "Rs 7,500 from google", "engine": "google(nimble)"},
+                {"url": "https://www.daraz.pk/b", "title": "B", "snippet": "", "engine": "google(nimble)"}]
+    async def tavily(client, q, cc):
+        raise sp.ProviderError(429, "20")
+    monkeypatch.setattr(websearch, "searxng", searx)
+    monkeypatch.setattr(sp, "PAID", {"nimble": ("NIMBLE_API_KEY", nimble), "tavily": ("TAVILY_API_KEY", tavily)})
+    monkeypatch.setenv("NIMBLE_API_KEY", "x"); monkeypatch.setenv("TAVILY_API_KEY", "y")
+    monkeypatch.setattr(sp.KB, "configured", lambda: False)
+    sp.BUCKETS.clear(); sp._mem.clear()
+    stats = {}
+    async def go():
+        async with httpx.AsyncClient() as c:
+            return await sp.search(c, "corolla ac condenser", "PK", primary=True, allow_social=True, stats=stats)
+    res = asyncio.run(go())
+    assert [r["url"] for r in res] == ["https://www.pakwheels.com/a", "https://www.daraz.pk/b"]   # Google order first
+    assert "Rs 7,500" in res[0]["snippet"] and "from searx" in res[0]["snippet"]                 # evidence merged
+    assert stats["errors"]["tavily"] == 429 and sp.bucket("tavily").available()[0] is False       # tavily paused
+    res2 = asyncio.run(go())                                                                      # 2nd call: cache
+    assert stats["cached"] >= 1 and len(res2) == 2
+    sp.BUCKETS.clear(); sp._mem.clear()
+
+
+def test_thin_kb_result_is_researched_again(monkeypatch):
+    """A stored result with < 3 verified prices older than 30 min is not trusted: research runs again."""
+    from app.sources import web_deep_search as wds
+    one = verify({"source_url": "https://autostore.pk/x", "vendor_name": "Autostore", "price": 22000, "currency": "PKR",
+                  "price_text": "Rs 22,000", "country_code": "PK", "title": "pads", "item_sold": "brake pads",
+                  "is_requested_part": True},
+                 {"https://autostore.pk/x": {"url": "https://autostore.pk/x", "markdown": "Autostore brake pads Rs 22,000"}},
+                 "PK", "g", EST, "brake pads")
+    async def fake_find(*a):
+        return [one.model_dump(mode="json")], {"kept": 1}, "brake pads", 3600.0
+    async def research(self, q):
+        return [], {"fresh": True}
+    monkeypatch.setattr(wds.KB, "configured", lambda: True)
+    monkeypatch.setattr(wds.KB, "find_result", fake_find)
+    monkeypatch.setattr(wds.KB, "put_result", lambda *a, **k: asyncio.sleep(0))
+    monkeypatch.setattr(wds.WebDeepSearch, "_research", research)
+    wds._cache.clear()
+    _, stats = asyncio.run(wds.WebDeepSearch().run(PartQuery(make="corolla", model="indus", year=2002, part_name="brake pads")))
+    assert stats == {"fresh": True}
+    assert wds.WebDeepSearch.cache_key(PartQuery(make="corolla", model="indus", year=2002, part_name="ac condenser")) == \
+        wds.WebDeepSearch.cache_key(PartQuery(make="Toyota", model="Corolla", year=2002, part_name="ac condenser"))
+    wds._cache.clear()
+
+
+def test_condense_keeps_wanted_price_on_long_marketplace_page():
+    """gari.pk case: hundreds of other products with prices above the wanted item used to fill the budget."""
+    from app.sources.web_deep_search import condense
+    noise = [f"Seat cover model {i} Rs {1000 + i}" for i in range(400)]
+    page = "\n".join(["Gari.pk accessories"] + noise + ["## Toyota Corolla Ac Condenser", "Rs 7500", "Call 0300 1234567"])
+    out = condense(page, "Toyota Corolla AC condenser".split())
+    assert "Toyota Corolla Ac Condenser" in out and "Rs 7500" in out and len(out) <= 3600
