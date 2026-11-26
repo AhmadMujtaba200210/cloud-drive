@@ -173,6 +173,7 @@ class KB:
         self.pool = None
         self._init_lock = asyncio.Lock()
         self._failed_at = 0.0
+        self._down_until = 0.0          # circuit breaker: skip the KB entirely after a hung call
         self.stats: dict[str, int] = {}
 
     @staticmethod
@@ -195,7 +196,7 @@ class KB:
                         user=os.environ["ORACLE_DB_USER"], password=os.environ["ORACLE_DB_PASSWORD"],
                         dsn=os.environ["ORACLE_DB_DSN"], config_dir=wallet, wallet_location=wallet,
                         wallet_password=os.getenv("ORACLE_WALLET_PASSWORD") or None,
-                        min=1, max=int(os.getenv("KB_POOL_MAX", "4")), increment=1, timeout=300,
+                        min=1, max=int(os.getenv("KB_POOL_MAX", "4")), increment=1, timeout=300, ping_interval=30,
                         tcp_connect_timeout=8)
                 except Exception as e:                                       # noqa: BLE001
                     self._failed_at = time.time()
@@ -204,19 +205,36 @@ class KB:
         return self.pool
 
     async def _run(self, fn, default=None, timeout: float = OP_TIMEOUT_S):
-        """Run fn(conn) with a timeout; any error -> default (research continues without the KB)."""
+        """Run fn(conn) with a HARD timeout; any error -> default (research continues without the KB).
+
+        asyncio.wait_for cancels and then WAITS for the cancellation; a driver stuck on a dead socket can ignore it
+        and hang the whole search. So the call runs as its own task, we stop waiting at the deadline, abandon it,
+        and open the circuit breaker so the next calls skip the KB for a while instead of each waiting again."""
+        if time.time() < self._down_until:
+            return default
         pool = await self._pool()
         if pool is None:
             return default
-        try:
-            async def go():
-                async with pool.acquire() as conn:
-                    return await fn(conn)
-            return await asyncio.wait_for(go(), timeout)
-        except Exception as e:                                                 # noqa: BLE001
-            log.warning("kb op failed: %s", str(e)[:200])
+
+        async def go():
+            async with pool.acquire() as conn:
+                conn.call_timeout = int(timeout * 1000)        # server round-trips also give up on their own
+                return await fn(conn)
+        task = asyncio.ensure_future(go())
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        if not done:
+            task.cancel()
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())   # never "exception never retrieved"
+            self._down_until = time.time() + 120
+            self.stats["timeouts"] = self.stats.get("timeouts", 0) + 1
+            log.warning("kb op timed out after %.0fs; skipping the knowledge base for 2 min", timeout)
+            return default
+        exc = task.exception()
+        if exc is not None:
+            log.warning("kb op failed: %s", str(exc)[:200])
             self.stats["errors"] = self.stats.get("errors", 0) + 1
             return default
+        return task.result()
 
     def _hit(self, name: str) -> None:
         self.stats[name] = self.stats.get(name, 0) + 1

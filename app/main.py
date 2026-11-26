@@ -19,11 +19,12 @@ from fastapi import FastAPI, HTTPException, Query, Request  # noqa: E402
 from fastapi.responses import FileResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
-from . import aggregator, customs, progress  # noqa: E402
+from . import aggregator, customs, loadtest, progress  # noqa: E402
 from .config import countries, load  # noqa: E402
 from .models import PartQuery, SearchResponse  # noqa: E402
 
 log = logging.getLogger("partsbridge")
+loadtest.install()                       # no-op unless LOADTEST_MODE=1 (staging only)
 STATIC = Path(__file__).resolve().parent.parent / "static"
 _docs = os.getenv("DISABLE_DOCS") != "1"
 app = FastAPI(title="PartsBridge PK", version="0.2.0",
@@ -53,7 +54,7 @@ async def security_headers(request: Request, call_next):
 
 # ---------------- public-server protection: every uncached search spends LLM quota ----------------
 _hits: dict[str, deque] = defaultdict(deque)
-_running: set[str] = set()                 # client IPs with an uncached search in progress
+_running: dict[str, str] = {}              # client IP -> key of its uncached search in progress
 _sem: asyncio.Semaphore | None = None
 _bg: set[asyncio.Task] = set()
 _last_prune = 0.0
@@ -61,6 +62,8 @@ _last_prune = 0.0
 
 def _client_ip(request: Request) -> str:
     # uvicorn runs with --proxy-headers behind nginx, so request.client is the real visitor IP
+    if loadtest.ENABLED and request.headers.get("x-loadtest-user"):
+        return "lt:" + request.headers["x-loadtest-user"][:40]     # each simulated user is its own visitor
     return request.client.host if request.client else "unknown"
 
 
@@ -88,15 +91,25 @@ def _check_token(request: Request) -> None:
             raise HTTPException(401, "Access token required")
 
 
+def _search_key(q: PartQuery) -> str:
+    from .sources.web_deep_search import WebDeepSearch
+    return WebDeepSearch.cache_key(q)
+
+
 def _guard(request: Request, q: PartQuery) -> str | None:
     """Token + per-IP hourly limit + one running search per IP. Cached searches are free.
-    Returns the IP to release when the search ends (None when nothing was reserved)."""
+    Returns the IP to release when the search ends (None when nothing was reserved).
+    A visitor whose connection dropped may REJOIN their own running search (same part): that is free and shares
+    the result of the search already running instead of being refused."""
     _check_token(request)
     if aggregator.is_cached(q):
         return None
     ip, now = _client_ip(request), time.time()
     _prune(now)
     if ip in _running:
+        if _running[ip] == _search_key(q):
+            request.state.rejoin = True
+            return None
         raise HTTPException(429, "You already have a search running. Please wait for it to finish.",
                             headers={"Retry-After": "30"})
     limit = int(os.getenv("RATE_LIMIT_PER_HOUR", "30"))
@@ -108,17 +121,51 @@ def _guard(request: Request, q: PartQuery) -> str | None:
             raise HTTPException(429, f"Search limit reached ({limit}/hour). Try again later.",
                                 headers={"Retry-After": str(int(3600 - (now - q_[0])) + 1)})
         q_.append(now)
-    _running.add(ip)
+    _running[ip] = _search_key(q)
     return ip
 
 
+def _release(ip: str | None) -> None:
+    if ip is not None:
+        _running.pop(ip, None)
+
+
+SEARCH_CEILING_S = int(os.getenv("SEARCH_CEILING_S", "240"))
+KEEPALIVE_S = 8          # the browser treats 25 s of silence as a dead connection and reconnects
+_waiting = 0
+_recent_secs: deque = deque(maxlen=20)        # durations of recent searches, for the wait estimate
+
+
 @contextlib.asynccontextmanager
-async def _slot():
+async def _slot_inner():
+    """Concurrency cap with an honest queue message: place in line + estimated wait from recent search times."""
+    global _waiting
     sem = _slots()
     if sem.locked():
-        progress.say("wait", "The server is busy with other searches. You're in line; this usually takes under a minute.")
-    async with sem:
+        _waiting += 1
+        place = _waiting
+        cap = max(1, int(os.getenv("MAX_CONCURRENT_SEARCHES", "3")))
+        avg = (sum(_recent_secs) / len(_recent_secs)) if _recent_secs else 90
+        eta = int(avg * (1 + (place - 1) // cap))
+        progress.say("wait", f"The server is busy: you're number {place} in line. Estimated wait about "
+                             f"{max(1, round(eta / 60))} min; your search starts automatically, keep this tab open.")
+        try:
+            await sem.acquire()
+        finally:
+            _waiting -= 1
+        progress.say("think", "Your turn: starting the research now.")
+    else:
+        await sem.acquire()
+    t0 = time.time()
+    try:
         yield
+    finally:
+        _recent_secs.append(time.time() - t0)
+        sem.release()
+
+
+def _slot():
+    return _slot_inner()
 
 
 @app.post("/api/search", response_model=SearchResponse)
@@ -128,7 +175,7 @@ async def search(q: PartQuery, request: Request) -> SearchResponse:
         async with _slot():
             return await aggregator.search(q)
     finally:
-        _running.discard(ip)
+        _release(ip)
 
 
 def _sse(event: str, data) -> str:
@@ -146,17 +193,32 @@ async def search_stream(q: PartQuery, request: Request):
         with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(item)
 
+    rejoin = getattr(request.state, "rejoin", False)
+
     async def produce() -> None:
         progress.bind(queue)
         try:
-            async with _slot():
-                res = await aggregator.search(q)
+            if rejoin:
+                progress.say("think", "Reconnected. Your search is still running on the server; the results will "
+                                      "appear here as soon as it finishes.")
+            async with (contextlib.nullcontext() if rejoin else _slot()):
+                # Hard ceiling: whatever happens downstream, the visitor gets an answer instead of an endless wait.
+                job = asyncio.ensure_future(aggregator.search(q))
+                done, _ = await asyncio.wait({job}, timeout=SEARCH_CEILING_S)
+                if not done:
+                    job.add_done_callback(lambda t: t.cancelled() or t.exception())
+                    job.cancel()
+                    log.error("search exceeded %ss and was abandoned", SEARCH_CEILING_S)
+                    put(("error", {"message": "This search took too long and was stopped. Please try again; parts "
+                                              "found so far are kept for the next attempt."}))
+                    return
+                res = job.result()
             put(("result", res.model_dump(mode="json")))
         except Exception:
             log.exception("search failed")
             put(("error", {"message": "The search failed unexpectedly. Please try again in a minute."}))
         finally:
-            _running.discard(ip)
+            _release(ip)
             put(None)
 
     task = asyncio.create_task(produce())
@@ -168,7 +230,7 @@ async def search_stream(q: PartQuery, request: Request):
         yield _sse("step", {"kind": "think", "text": "Starting the research…", "t": 0})
         while True:
             try:
-                item = await asyncio.wait_for(queue.get(), timeout=15)
+                item = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
             except asyncio.TimeoutError:
                 yield ": keep-alive\n\n"
                 continue

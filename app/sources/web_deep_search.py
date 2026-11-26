@@ -40,7 +40,7 @@ DEFAULT_COUNTRIES = ["PK", "AE", "JP", "DE", "GB", "US", "CN", "TH", "MY", "SA",
 LANG_HINT = {"JP": "Japanese", "DE": "German", "CN": "Chinese", "TH": "Thai", "TR": "Turkish", "KR": "Korean",
              "SA": "Arabic or English", "AE": "English", "PK": "English or Urdu"}
 MAX_PAGE_CHARS = 3500
-PAGES_PER_LLM_CALL = 3
+PAGES_PER_LLM_CALL = 2          # smaller prompts: fit Groq's per-minute token budget and run more calls in parallel
 CACHE_TTL_S = 6 * 3600
 OEM_PASS_COUNTRIES = ["PK", "AE", "JP", "US"]
 # Pakistan-only mode: the big local marketplaces get a site-targeted query each, plus social media shops.
@@ -696,7 +696,7 @@ class WebDeepSearch(SourceAdapter):
                  "pages_followed": 0, "scraper": None, "extracted": 0, "kept": 0, "priced_kept": 0,
                  "dropped_ungrounded": 0, "llm_providers": {}, "llm_errors": 0, "per_country": {},
                  "drop_reasons": {}, "oem_pass": None, "timed_out": [], "providers": {}}
-        sem_search, sem_scrape, sem_llm = asyncio.Semaphore(4), asyncio.Semaphore(8), asyncio.Semaphore(5)
+        sem_search, sem_scrape, sem_llm = asyncio.Semaphore(8), asyncio.Semaphore(10), asyncio.Semaphore(6)
         oem_seen: Counter = Counter()
         oem_sites: dict[str, set] = {}
 
@@ -746,7 +746,7 @@ class WebDeepSearch(SourceAdapter):
                 async with sem_llm:
                     try:
                         out, provider = await llm.complete_json(
-                            EXTRACT_SYSTEM, _extract_prompt(q, cc, batch, aliases), client=client, max_tokens=4000)
+                            EXTRACT_SYSTEM, _extract_prompt(q, cc, batch, aliases), client=client, max_tokens=2500)
                     except llm.LLMUnavailable:
                         stats["llm_errors"] += 1
                         progress.say("warn", f"The AI models were busy while reading {len(batch)} pages from "
@@ -795,10 +795,15 @@ class WebDeepSearch(SourceAdapter):
                             # several engines describe the same post differently: keep every public snippet
                             cands[u]["snippet"] = ((cands[u].get("snippet") or "") + " … " + r["snippet"])[:1500]
 
+                # All queries of a country run concurrently (bounded by sem_search): the slowest one sets the pace,
+                # not the sum of all of them.
                 for i, query in enumerate(queries):
                     progress.say("search", f"Searching {label}: “{query}”" + (" (Google + Tavily + open engines)"
                                                                            if i < paid else ""), country=cc)
-                    add(await run_query(query, primary=i < paid))
+                for res in await asyncio.gather(*(run_query(qq, primary=i < paid) for i, qq in enumerate(queries)),
+                                                return_exceptions=True):
+                    if isinstance(res, list):
+                        add(res)
                 if not cands:
                     # Engines throttle bursts (CAPTCHA / "too many requests"): pause, then try a plainer query.
                     plain = f"{q.make} {q.model} {q.part_name} " + ("" if cc == "PK" else _cname(cc))
@@ -814,9 +819,12 @@ class WebDeepSearch(SourceAdapter):
                     return []
                 social = [c for c in cands.values() if websearch.is_social(c["url"])]
                 shops = [c for c in cands.values() if not websearch.is_social(c["url"])]
-                chosen, why = await triage(q, cc, shops, pick) if shops else ([], None)
+                async def _none():
+                    return [], None
+                (chosen, why), (picked_social, _) = await asyncio.gather(
+                    triage(q, cc, shops, pick) if shops else _none(),
+                    triage(q, cc, social, SOCIAL_PICK) if social else _none())
                 if social:
-                    picked_social, _ = await triage(q, cc, social, SOCIAL_PICK)
                     chosen += picked_social
                     progress.say("pick", f"{label}: {len(social)} social media posts found (Facebook / Marketplace / "
                                          f"Instagram / TikTok); checking {len(picked_social)} that look like real "
@@ -917,6 +925,7 @@ class WebDeepSearch(SourceAdapter):
 
             offers = await self._gather_with_deadline(
                 {cc: one_country(cc) for cc in ccs}, t0 + budget * 0.75, stats)
+            progress.partial(offers, "first round verified; still looking for cheaper prices")
 
             # Second pass: a manufacturer part number confirmed on 2+ different sites is the most precise query there is.
             best = next((n for n, c in oem_seen.most_common() if len(oem_sites.get(n, ())) >= 2), None)
@@ -940,6 +949,8 @@ class WebDeepSearch(SourceAdapter):
                         o.checks.append(f"Part number {best} is on the page")
                 stats["oem_pass"]["new_offers"] = len(fresh)
                 offers += fresh
+                if fresh:
+                    progress.partial(offers, "part-number search added offers")
             elif q.oem_number is None and oem_seen:
                 stats["oem_pass"] = {"skipped": "no part number confirmed on 2+ sites" if remaining > 45 else "time budget"}
 
@@ -1020,6 +1031,8 @@ class WebDeepSearch(SourceAdapter):
             new = [o for o in got if (o.vendor.name.lower(), o.url) not in before]
             found += new
             last_yield = sum(o.price is not None for o in new)
+            if last_yield:
+                progress.partial(offers + found, f"price hunt round {rnd + 1} added offers")
             new_min = min((pk(o) for o in new if o.price is not None), default=None)
             hunt["rounds"] = rnd + 1
             hunt["log"].append({"round": rnd + 1, "new_priced": last_yield, "new_min_pkr": new_min})
@@ -1040,7 +1053,8 @@ class WebDeepSearch(SourceAdapter):
         if pending:
             names = ", ".join(_cname(tasks[t]) for t in pending)
             progress.say("warn", f"Stopped waiting for {names} to keep the search under the time limit.")
-            await asyncio.gather(*pending, return_exceptions=True)
+            for t in pending:                      # cancelled and abandoned: never wait on a task that may not stop
+                t.add_done_callback(lambda x: x.cancelled() or x.exception())
         out: list[Offer] = []
         for t in done:
             if t.exception() is None:

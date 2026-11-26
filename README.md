@@ -88,6 +88,34 @@ a generation-range query is searched first. Pakistan-only mode drops overseas st
 PartsGeek…) and foreign ccTLDs before triage. Cache keys use the canonical vehicle and a pipeline version; a stored
 result with fewer than 3 verified prices is only reused for 30 minutes.
 
+### Load test (scripts/loadtest.py, app/loadtest.py)
+`LOADTEST_MODE=1` (staging only, never production) swaps AI, Google/Tavily, SearXNG and Firecrawl for stand-ins
+with realistic delays, so a test measures this server without spending quota or hitting real shops. Each simulated
+visitor loads the page + assets, searches its own part (no cache sharing: worst case) and reads the SSE stream.
+Results on the 4-core Oracle VM (one uvicorn process), 2026-11-26:
+
+| users at once | searches completed | page load p95 | full result p50 | app CPU | peak RAM |
+|---|---|---|---|---|---|
+| 5 | 5/5 | 0.1 s | 128 s | 1% | 57 MB |
+| 50 | 50/50 | 2.0 s | 124 s | 8% | 113 MB |
+| 100 | 100/100 | 6.4 s | 118 s | 17% | 181 MB |
+| 250 | 250/250 | 23 s | 125 s | 32% | 368 MB |
+| 500 | 500/500 | 63 s | 129 s | 57% | 684 MB |
+| 1,000 (app serves files) | 971/1,000 | 144 s | — | 43% | 1.3 GB |
+| 1,000 (nginx serves files) | 1,000/1,000 | 10.9 s | 157 s | 83% | 1.2 GB |
+
+Takeaways: nginx now serves the page and assets from `/var/www/partsbridge` (page loads ~5x faster under load);
+nginx `worker_connections 4096`. One app process handles about 1,000 concurrent searches; beyond that add
+processes or a second VM. In production the real ceiling is AI / search quota, hence `MAX_CONCURRENT_SEARCHES=5`
+with a queue that shows each visitor their place in line and an estimated wait.
+
+### Resilience
+Every Oracle call runs with a hard deadline (abandoned, not awaited, if the driver hangs) and a 2-minute circuit
+breaker; slow countries are abandoned at the deadline; every search has a 240 s ceiling (`SEARCH_CEILING_S`).
+Some networks drop long connections silently: the server pings every 8 s, the browser treats 25 s of silence as a
+dead connection and reconnects, and the server lets a visitor rejoin their own running search (same part) instead
+of refusing it. Early results stream as soon as the first round is verified.
+
 ### Live research feed
 `POST /api/search/stream` (Server-Sent Events) narrates the real pipeline as it runs: the planner's strategy,
 each search query, which pages the AI picked and why, every page opened, each price confirmed on its page, claims

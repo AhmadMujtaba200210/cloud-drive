@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 
 _queue: contextvars.ContextVar[asyncio.Queue | None] = contextvars.ContextVar("progress_queue", default=None)
 _t0: contextvars.ContextVar[float] = contextvars.ContextVar("progress_t0", default=0.0)
+# Builds a full (partial) search response from the offers found so far; set by aggregator.search for streaming.
+_partial: contextvars.ContextVar = contextvars.ContextVar("progress_partial", default=None)
 
 
 def bind(queue: asyncio.Queue) -> None:
@@ -37,6 +39,23 @@ def say(kind: str, text: str, **data) -> None:
     try:
         q.put_nowait(("step", evt))
     except asyncio.QueueFull:          # a stalled client must never block the search
+        pass
+
+
+def set_partial_builder(fn) -> None:
+    _partial.set(fn)
+
+
+def partial(offers: list, note: str) -> None:
+    """Stream early results: the user sees verified offers while the price hunt keeps going."""
+    q, fn = _queue.get(), _partial.get()
+    if q is None or fn is None or not offers:
+        return
+    try:
+        data = fn(offers)
+        data["partial_note"] = note
+        q.put_nowait(("partial", data))
+    except Exception:          # noqa: BLE001 - early results are a nicety; never break the search
         pass
 
 

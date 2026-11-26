@@ -62,6 +62,9 @@ id "$SVC_USER" >/dev/null 2>&1 || useradd --system --create-home --home-dir $BAS
 mkdir -p $APP $ETC
 rsync -a --delete --exclude .git --exclude .env --exclude '__pycache__' --exclude '.pytest_cache' "$SRC/" "$APP/"
 chown -R $SVC_USER:$SVC_USER $BASE
+# nginx serves the page + assets directly (deploy/nginx.conf); keep its read-only copy in sync
+install -d -m 755 /var/www/partsbridge
+rsync -a --delete --chmod=D755,F644 "$APP/static/" /var/www/partsbridge/static/
 
 # ---------- 3. secrets file (never in git) ----------
 if [ ! -f $ETC/env ]; then

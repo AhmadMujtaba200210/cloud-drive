@@ -203,4 +203,32 @@ def test_gemini_only_lite_models(monkeypatch):
 
 def test_gemini_is_last_in_chain():
     names = [p.name for p in llm.default_chain()]
-    assert names == ["groq", "openrouter", "openrouter-free", "gemini-lite", "gemini-lite-2"]
+    assert names == ["groq", "groq-20b", "openrouter", "openrouter-free", "gemini-lite", "gemini-lite-2"]
+
+
+def test_token_budget_skips_provider_without_round_trip(monkeypatch):
+    """Groq says only 500 tokens are left for 60 s: a big prompt must go straight to the next provider."""
+    import time
+    calls = []
+    def h(r):
+        calls.append(r.url.host)
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"a": 1}'}}]})
+    llm._tokens_left.clear()
+    llm._tokens_left["groq"] = (500.0, time.time() + 60)
+    out, used = run(h, monkeypatch)
+    assert used == "gemini" and calls == ["ge.test"]
+    llm._tokens_left.clear()
+
+
+def test_402_no_credits_pauses_provider(monkeypatch):
+    def h(r):
+        if r.url.host == "g.test":
+            return httpx.Response(402, text="Insufficient credits")
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"ok": 1}'}}]})
+    run(h, monkeypatch)
+    import time
+    assert llm._cooldown_until["groq"] > time.time() + 1000
+
+
+def test_parse_reset():
+    assert llm._parse_reset("7.66s") == 7.66 and llm._parse_reset("1m2.5s") == 62.5 and llm._parse_reset("120ms") == 0.12

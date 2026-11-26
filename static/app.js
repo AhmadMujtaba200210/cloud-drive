@@ -140,12 +140,13 @@ const feed = {
 const fmtT = t => t == null ? "" : `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 
 // ---------------- streaming search ----------------
-async function readStream(resp, onEvent) {
+async function readStream(resp, onEvent, onBytes) {
   const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = "";
   for (;;) {
     const {value, done} = await reader.read();
     if (done) return;
+    if (onBytes) onBytes();                 // any bytes, keep-alive pings included, prove the connection is alive
     buf += value;
     let i;
     while ((i = buf.indexOf("\n\n")) >= 0) {
@@ -190,22 +191,42 @@ async function search() {
   $("go").disabled = true; $("go").textContent = "Researching…";
   $("results").hidden = true; $("examples").hidden = true; $("out").innerHTML = ""; D = null; F = null;
   feed.start();
-  let result = null, err = null;
-  try {
-    const r = await fetch("/api/search/stream", {method: "POST", headers, body: JSON.stringify(q)});
-    if (!r.ok) throw new Error(await errorText(r));
-    await readStream(r, (ev, data) => {
-      if (ev === "step") feed.push(data);
-      else if (ev === "result") result = data;
-      else if (ev === "error") err = data.message || "Search failed.";
-    });
-    if (!result && !err) result = await recover(q);
-  } catch (e) {
-    if (!result && !err) {
-      if (e instanceof TypeError) { try { result = await recover(q); } catch (e2) { err = e2.message; } }
-      else err = e.message;
+  let result = null, err = null, earlyShown = false;
+  const onEvent = (ev, data) => {
+    if (ev === "step") feed.push(data);
+    else if (ev === "partial") {
+      if (!earlyShown) { track("early_results_shown", {secs: Math.round((Date.now() - searchT0) / 1000)}); earlyShown = true; }
+      render(data);
+    }
+    else if (ev === "result") result = data;
+    else if (ev === "error") err = data.message || "Search failed.";
+  };
+  // Some networks drop long connections silently (no close, no error), which used to leave the page waiting forever.
+  // The server pings every 8 s; 25 s of total silence = dead connection -> reconnect. The server lets this visitor
+  // rejoin their own running search, so nothing is repeated and the result arrives as soon as it is ready.
+  for (let attempt = 0; !result && !err && attempt <= 3; attempt++) {
+    if (attempt) {
+      feed.push({kind: "wait", text: `The connection went quiet, reconnecting to your search (attempt ${attempt} of 3)…`});
+      track("stream_reconnect", {attempt});
+      await sleep(1500);
+    }
+    const ctrl = new AbortController();
+    let last = Date.now();
+    const dog = setInterval(() => { if (Date.now() - last > 25000) ctrl.abort(); }, 3000);
+    try {
+      const r = await fetch("/api/search/stream", {method: "POST", headers, body: JSON.stringify(q), signal: ctrl.signal});
+      if (!r.ok) {
+        if (attempt && r.status === 429) break;          // cannot rejoin (finished meanwhile): fetch the result below
+        throw new Error(await errorText(r));
+      }
+      await readStream(r, onEvent, () => { last = Date.now(); });
+    } catch (e) {
+      if (!(e.name === "AbortError" || e instanceof TypeError)) err = e.message;   // network trouble -> retry
+    } finally {
+      clearInterval(dog);
     }
   }
+  if (!result && !err) { try { result = await recover(q); } catch (e2) { err = e2.message; } }
   busy = false;
   $("go").disabled = false; $("go").textContent = "Search";
   const secs = Math.round((Date.now() - searchT0) / 1000);
@@ -327,8 +348,15 @@ function render(d) {
   const lo = prices.length ? Math.min(...prices) : 0, hi = prices.length ? Math.max(...prices) : 0;
   const ccs = [...new Set([...ALL, ...d.contact_only].map(o => o.offer.vendor.country))];
   const conds = [...new Set([...ALL, ...d.contact_only].map(o => o.offer.condition))];
-  if (fresh || !F) F = {min: lo, max: hi, lo, hi, countries: new Set(ccs), conds: new Set(conds)};
-  else { F.min = lo; F.max = hi; }
+  if (fresh || !F) F = {min: lo, max: hi, lo, hi, countries: new Set(ccs), conds: new Set(conds), seen: new Set([...ccs, ...conds])};
+  else {
+    // later (fuller) results: widen the price range if the user hadn't narrowed it, and tick new countries/conditions
+    const wasFull = F.lo <= F.min + 0.5 && F.hi >= F.max - 0.5;
+    F.min = lo; F.max = hi;
+    if (wasFull) { F.lo = lo; F.hi = hi; }
+    for (const c of ccs) if (!F.seen.has(c)) { F.seen.add(c); F.countries.add(c); }
+    for (const c of conds) if (!F.seen.has(c)) { F.seen.add(c); F.conds.add(c); }
+  }
   buildSide(ccs, conds);
   $("results").hidden = false;
   update();
@@ -394,7 +422,7 @@ function bestBox(b, label) {
 
 function renderList(shown, eligible) {
   const d = D, local = d.query.scope === "local";
-  let h = "";
+  let h = d.partial_note ? `<div class="early"><span class="pulse" aria-hidden="true"></span> Early results (${esc(d.partial_note)}). This list updates by itself; you can already contact sellers.</div>` : "";
   if (shown.length) {
     const cheapest = shown.reduce((a, b) => a.total_landed_pkr <= b.total_landed_pkr ? a : b);
     h += bestBox(cheapest, F.lo > F.min || F.hi < F.max ? "Cheapest in your price range" : "Cheapest option");

@@ -125,6 +125,9 @@ def _sort_key(mode: SortMode):
 
 async def search(q: PartQuery, adapters: list[SourceAdapter] | None = None) -> SearchResponse:
     adapters = [a for a in (adapters or ALL_ADAPTERS) if a.enabled()]
+    # Early results for the live feed: same landed-cost pipeline, run on the offers found so far.
+    progress.set_partial_builder(lambda found: assemble(q, list(found), {"web_deep_search": {"partial": True}},
+                                                        [a.name for a in adapters], narrate=False).model_dump(mode="json"))
     results = await asyncio.gather(*(a.run(q) for a in adapters), return_exceptions=True)
     offers, diagnostics = [], {}
     for a, r in zip(adapters, results):
@@ -134,8 +137,13 @@ async def search(q: PartQuery, adapters: list[SourceAdapter] | None = None) -> S
             continue
         offers.extend(r[0])
         diagnostics[a.name] = {"offers": len(r[0]), **r[1]}
+    return assemble(q, offers, diagnostics, [a.name for a in adapters])
+
+
+def assemble(q: PartQuery, offers: list[Offer], diagnostics: dict, sources: list[str],
+             narrate: bool = True) -> SearchResponse:
     passing = [o for o in offers if _passes(q, o)]
-    if passing:
+    if passing and narrate:
         progress.say("cost", f"Working out shipping and Pakistan customs to {q.customer_city} for {len(passing)} offers "
                              f"(carrier rates, HS code, duties, sales tax).")
     passing.sort(key=lambda o: CONF_RANK.get(o.confidence, 3))     # dedupe keeps the best-evidenced copy
@@ -165,7 +173,7 @@ async def search(q: PartQuery, adapters: list[SourceAdapter] | None = None) -> S
     return SearchResponse(
         query=q, fx_rates_pkr=rates, fx_as_of=as_of, local=local, international=groups, contact_only=contact_only,
         cheapest_overall=min(priced, key=lambda x: x.total_landed_pkr) if priced else None,
-        sources_used=[a.name for a in adapters], diagnostics=diagnostics,
+        sources_used=sources, diagnostics=diagnostics,
         analysis=analysis.analyse([x for x in priced if x.is_local], [x for x in priced if not x.is_local], contact_only),
         disclaimers=[
             "Shipping rates are illustrative rate cards until carrier APIs are connected.",

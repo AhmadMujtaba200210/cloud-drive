@@ -118,7 +118,7 @@ def test_stream_validates_and_limits(monkeypatch):
 
 
 def test_one_running_search_per_ip():
-    main._running.add("testclient")
+    main._running["testclient"] = "some-other-search"
     r = TestClient(app).post("/api/search", json=BMW)
     assert r.status_code == 429 and "already have a search running" in r.json()["detail"]
 
@@ -425,3 +425,92 @@ def test_condense_keeps_wanted_price_on_long_marketplace_page():
     page = "\n".join(["Gari.pk accessories"] + noise + ["## Toyota Corolla Ac Condenser", "Rs 7500", "Call 0300 1234567"])
     out = condense(page, "Toyota Corolla AC condenser".split())
     assert "Toyota Corolla Ac Condenser" in out and "Rs 7500" in out and len(out) <= 3600
+
+
+def test_queue_message_shows_place_in_line(monkeypatch):
+    import httpx
+    from app.aggregator import search as real_search
+    from app.sources.demo_catalog import DemoCatalog
+    monkeypatch.setenv("MAX_CONCURRENT_SEARCHES", "1")
+    main._sem = None
+    async def slow(q, adapters=None):
+        await asyncio.sleep(0.4)
+        return await real_search(q, [DemoCatalog()])
+    monkeypatch.setattr(main.aggregator, "search", slow)
+    async def go():
+        transport = httpx.ASGITransport(app=app, client=("1.2.3.4", 1))
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            async def one(i):
+                r = await c.post("/api/search/stream", json={**BMW, "part_name": f"steering wheel {i}"},
+                                 headers={"x-forwarded-for": f"9.9.9.{i}"})
+                return r.text
+            return await asyncio.gather(one(1), one(2))
+    monkeypatch.setattr(main, "_client_ip", lambda req: req.headers.get("x-forwarded-for", "x"))
+    a, b = asyncio.run(go())
+    texts = a + b
+    assert "number 1 in line" in texts and "Your turn" in texts
+    assert texts.count("event: result") == 2
+    main._sem = None
+
+
+def test_hung_kb_call_cannot_hang_a_search(monkeypatch):
+    """A driver stuck on a dead socket that swallows cancellation: _run must still return at its deadline."""
+    k = kbmod.KB()
+
+    class StuckConn:
+        call_timeout = 0
+    class Acq:
+        async def __aenter__(self):
+            return StuckConn()
+        async def __aexit__(self, *a):
+            return False
+    class Pool:
+        def acquire(self):
+            return Acq()
+    async def pool():
+        return Pool()
+    monkeypatch.setattr(k, "_pool", pool)
+
+    async def stubborn(conn):
+        while True:                                   # ignores cancellation, like a stuck driver
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                continue
+    async def go():
+        t = time.time()
+        out = await k._run(stubborn, default="fallback", timeout=0.3)
+        return out, time.time() - t
+    out, took = asyncio.run(go()) if False else (None, None)
+    loop = asyncio.new_event_loop()
+    try:
+        out, took = loop.run_until_complete(go())
+        assert out == "fallback" and took < 1.0
+        assert k._down_until > time.time()            # breaker open: next call skips immediately
+        out2 = loop.run_until_complete(k._run(stubborn, default="skip", timeout=5))
+        assert out2 == "skip"
+    finally:
+        for t in asyncio.all_tasks(loop):
+            t.cancel()
+        loop.close()
+
+
+def test_search_ceiling_returns_error_event(monkeypatch):
+    async def forever(q, adapters=None):
+        await asyncio.sleep(3600)
+    monkeypatch.setattr(main.aggregator, "search", forever)
+    monkeypatch.setattr(main, "SEARCH_CEILING_S", 0.5)
+    r = TestClient(app).post("/api/search/stream", json=BMW)
+    assert "event: error" in r.text and "took too long" in r.text
+
+
+def test_dropped_visitor_can_rejoin_own_search_but_not_start_another(monkeypatch):
+    """Silent network drop: the browser reconnects for the SAME part and is attached, not refused."""
+    from app.main import _search_key
+    q = PartQuery(**BMW)
+    main._running["testclient"] = _search_key(q)
+    c = TestClient(app)
+    r = c.post("/api/search/stream", json=BMW)
+    assert r.status_code == 200 and "Reconnected" in r.text and "event: result" in r.text
+    other = {**BMW, "part_name": "front bumper"}
+    assert c.post("/api/search/stream", json=other).status_code == 429
