@@ -416,7 +416,8 @@ class KB:
         return out
 
     async def put_sources(self, make: str, model: str, part: str, offers: list[Any]) -> None:
-        good = [o for o in offers if o.price is not None and o.url and o.vendor.country not in ("XX",)]
+        good = [o for o in offers if o.price is not None and o.url and o.vendor.country not in ("XX",)
+                and getattr(o, "match_kind", "exact") == "exact"]
         if not good:
             return
         vec = await embed(f"{make} {model} {part}")

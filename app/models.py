@@ -99,6 +99,8 @@ class Offer(BaseModel):
     confidence: Optional[str] = None   # high | medium | low, from the code checks in web_deep_search.verify
     checks: list[str] = []             # human-readable verification notes shown to the buyer
     fits_note: Optional[str] = None    # fitment text copied from the page (models / years / engine)
+    match_kind: str = "exact"          # exact | component | related (app/partmatch.py); only exact is ranked
+    match_reason: Optional[str] = None
 
 
 class ShippingQuote(BaseModel):
@@ -168,6 +170,7 @@ class SearchResponse(BaseModel):
     local: list[LandedOption]
     international: list[CountryGroup]
     contact_only: list[LandedOption]   # dealers with no listed price
+    related: list[LandedOption] = []   # components / related parts: shown apart, never ranked or "cheapest"
     cheapest_overall: Optional[LandedOption]
     sources_used: list[str]
     diagnostics: dict = {}

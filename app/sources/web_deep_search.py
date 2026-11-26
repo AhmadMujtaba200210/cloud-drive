@@ -27,7 +27,7 @@ from urllib.parse import unquote, urlparse
 
 import httpx
 
-from .. import firecrawl, llm, progress, searchproviders, vehicles, websearch
+from .. import firecrawl, llm, partmatch, progress, searchproviders, vehicles, websearch
 from ..kb import kb as KB, query_key, sha1
 from ..config import countries, load
 from ..models import Authenticity, Condition, Offer, PartQuery, SearchScope, Vendor
@@ -77,7 +77,7 @@ def _foreign_store(url: str) -> bool:
     return cc is not None and cc != "PK"
 
 
-PIPELINE_VERSION = "v4"          # bump when research quality changes: older cached results are then not reused
+PIPELINE_VERSION = "v6"          # bump when research quality changes: older cached results are then not reused
 THIN_RESULT_PRICES = 3           # fewer verified prices than this = a thin result...
 THIN_RESULT_TTL_S = 30 * 60      # ...reused for 30 min only, then researched again
 
@@ -265,7 +265,11 @@ def _extract_prompt(q: PartQuery, cc: str, pages: list[dict], aliases: list[str]
         '"currency": "ISO 4217"|null, "price_text": str|null, "condition": "new"|"used"|"refurbished"|null, '
         '"authenticity": "oem"|"oes"|"aftermarket"|null, "rating": number|null, "review_count": int|null, '
         '"ships_to_pakistan": bool|null, "item_sold": str, "is_requested_part": bool, "location_quote": str|null, '
-        '"oem_numbers": [str], "fits_note": str|null, "brand": str|null}]}\n'
+        '"oem_numbers": [str], "fits_note": str|null, "brand": str|null, '
+        '"item_kind": "complete"|"component"|"accessory"|"other_part"}]}\n'
+        '"item_kind" = "complete" if the listing sells the whole requested part; "component" if it sells only a piece '
+        'of it (e.g. headlight glass / lens / bulb / cover / bracket, radiator cap, mirror glass, pad sensor); '
+        '"accessory" for covers, films, stickers, decor; "other_part" for a different part.\n'
         '"vendor_name" = the SELLER (shop, store, dealer, or the marketplace seller / store name shown on the page), '
         'never the brand or manufacturer of the part (Denso, Bosch, Toyota Genuine...); if the page only shows the '
         'marketplace itself as the seller, use the marketplace name. Put the part brand in "brand".\n'
@@ -412,7 +416,11 @@ def verify(raw: dict, pages_by_url: dict[str, dict], default_cc: str, provider: 
     sname = _squash(re.sub(r"\.(com|pk|ae|jp|de|co\.uk|net|store)$", "", name, flags=re.I))
     if not name or (_norm(name) not in text and (len(sname) < 4 or sname not in _squash(text))):
         return drop("vendor_not_on_page")
-    if raw.get("is_requested_part") is False:
+    kind, kind_why = partmatch.classify(part_name, f"{raw.get('item_sold') or ''} {raw.get('title') or ''}",
+                                        raw.get("item_kind"))
+    if kind == "other":
+        return drop("different_part")
+    if raw.get("is_requested_part") is False and kind == "exact":
         return drop("not_requested_part")
     sold = _norm(f"{raw.get('item_sold') or ''} {raw.get('title') or ''}")
     wanted = _norm(part_name)
@@ -508,7 +516,8 @@ def verify(raw: dict, pages_by_url: dict[str, dict], default_cc: str, provider: 
         price=price, currency=currency or "PKR", url=page["url"], evidence=evidence,
         weight_kg=float(w), dims_cm=tuple(float(x) for x in dims), weight_is_estimate=True, handling_days=3,
         confidence=_confidence(price is not None, cc_evidence, model_on_page, oem_match),
-        checks=checks, fits_note=fits,
+        checks=checks + ([f"Not the complete part: {kind_why}"] if kind != "exact" else []), fits_note=fits,
+        match_kind=kind, match_reason=kind_why if kind != "exact" else None,
     )
 
 
@@ -887,10 +896,13 @@ class WebDeepSearch(SourceAdapter):
                     if not o:
                         continue
                     kept.append(o)
-                    if o.price is not None:
+                    if o.price is not None and o.match_kind != "exact":
+                        progress.say("drop", f"Set aside {o.vendor.name} ({o.evidence}): {o.match_reason}. Kept apart so "
+                                             f"it can't pose as the cheapest {q.part_name}.", country=o.vendor.country)
+                    elif o.price is not None:
                         progress.say("verify", f"Confirmed {o.vendor.name}: {o.evidence} is on the page "
                                                f"({progress.host(o.url)})", country=o.vendor.country, confidence=o.confidence)
-                    if o.oem_number:
+                    if o.oem_number and o.match_kind == "exact":
                         num = o.oem_number.upper()
                         oem_seen[num] += 1
                         oem_sites.setdefault(num, set()).add(_site(urlparse(o.url).hostname or ""))
@@ -989,7 +1001,8 @@ class WebDeepSearch(SourceAdapter):
         want_used = "used" in [c.value for c in q.conditions]
         last_yield = None
         for rnd in range(HUNT_MAX_ROUNDS):
-            pool = [o for o in offers + found if o.price is not None and (o.vendor.country == "PK" or not local)]
+            pool = [o for o in offers + found if o.price is not None and o.match_kind == "exact"
+                    and (o.vendor.country == "PK" or not local)]
             prices = sorted(p for p in (pk(o) for o in pool) if p)
             n = len(prices)
             m = last_yield if last_yield is not None else max(3, n // 2)
@@ -1030,16 +1043,16 @@ class WebDeepSearch(SourceAdapter):
             got = await research(cc, qs, f"{_cname(cc)} (price hunt {rnd + 1})", 8, 4, paid=1 if rnd == 0 else 0)
             new = [o for o in got if (o.vendor.name.lower(), o.url) not in before]
             found += new
-            last_yield = sum(o.price is not None for o in new)
+            last_yield = sum(o.price is not None and o.match_kind == "exact" for o in new)
             if last_yield:
                 progress.partial(offers + found, f"price hunt round {rnd + 1} added offers")
-            new_min = min((pk(o) for o in new if o.price is not None), default=None)
+            new_min = min((pk(o) for o in new if o.price is not None and o.match_kind == "exact"), default=None)
             hunt["rounds"] = rnd + 1
             hunt["log"].append({"round": rnd + 1, "new_priced": last_yield, "new_min_pkr": new_min})
             if new_min and prices and new_min < prices[0]:
                 progress.say("verify", f"Price hunt found a cheaper offer: PKR {new_min:,.0f} "
                                        f"({(1 - new_min / prices[0]):.0%} below the previous best).")
-        allp = [p for p in (pk(o) for o in offers + found if o.price is not None) if p]
+        allp = [p for p in (pk(o) for o in offers + found if o.price is not None and o.match_kind == "exact") if p]
         hunt["end_min_pkr"] = min(allp) if allp else None
         return found
 

@@ -147,6 +147,10 @@ def assemble(q: PartQuery, offers: list[Offer], diagnostics: dict, sources: list
         progress.say("cost", f"Working out shipping and Pakistan customs to {q.customer_city} for {len(passing)} offers "
                              f"(carrier rates, HS code, duties, sales tax).")
     passing.sort(key=lambda o: CONF_RANK.get(o.confidence, 3))     # dedupe keeps the best-evidenced copy
+    # Only listings of the requested part itself are ranked; a headlight GLASS must never be the cheapest headlight.
+    related = analysis.dedupe([build_option(q, o) for o in passing if o.match_kind != "exact"])
+    related.sort(key=lambda x: (x.total_landed_pkr is None, x.total_landed_pkr or 0))
+    passing = [o for o in passing if o.match_kind == "exact"]
     opts = analysis.dedupe([build_option(q, o) for o in passing])
     _score_and_tag(opts)
     analysis.flag_outliers(opts)
@@ -172,6 +176,7 @@ def assemble(q: PartQuery, offers: list[Offer], diagnostics: dict, sources: list
     rates, as_of = fx.rates()
     return SearchResponse(
         query=q, fx_rates_pkr=rates, fx_as_of=as_of, local=local, international=groups, contact_only=contact_only,
+        related=related,
         cheapest_overall=min(priced, key=lambda x: x.total_landed_pkr) if priced else None,
         sources_used=sources, diagnostics=diagnostics,
         analysis=analysis.analyse([x for x in priced if x.is_local], [x for x in priced if not x.is_local], contact_only),

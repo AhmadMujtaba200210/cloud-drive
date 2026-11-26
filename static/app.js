@@ -456,6 +456,12 @@ function renderList(shown, eligible) {
   if (contact.length) {
     h += `<h2>Sellers to contact for a price <span class="mute">(${contact.length})</span></h2>` + contact.map(o => `<div class="opt"><span class="flag">${flag(o.offer.vendor.country)}</span> <b>${esc(o.offer.vendor.name)}</b> <span class="tag">${esc(cname[o.offer.vendor.country] || o.offer.vendor.country)}</span><div>${esc(o.offer.title)}</div>${vendorLine(o.offer.vendor)}${contactBar(o)}${trustBlock(o)}</div>`).join("");
   }
+  const rel = d.related || [];
+  if (rel.length) {
+    h += `<details class="related"><summary>Sold separately: pieces of a ${esc(d.query.part_name)} and related items (${rel.length}). Not the complete part, so not counted as cheapest.</summary>` +
+      rel.map(o => `<div class="opt"><div class="row"><div class="grow"><span class="flag">${flag(o.offer.vendor.country)}</span> <b>${esc(o.offer.vendor.name)}</b> <span class="tag">${esc(o.offer.match_kind === "related" ? "related part" : "component")}</span><div>${esc(o.offer.title)}</div><div class="mute">${esc(o.offer.match_reason || "")}</div></div><div class="right"><div class="total">${o.total_landed_pkr != null ? pkr(o.total_landed_pkr) : "contact for price"}</div></div></div>${contactBar(o)}</div>`).join("") +
+      `</details>`;
+  }
   if (local) h += `<p class="mute">Showing Pakistani sellers only. Turn off “Pakistan sellers only” and search again to compare imports from 12 countries.</p>`;
   const a = d.analysis || {};
   if (!local && a.import_vs_local) {

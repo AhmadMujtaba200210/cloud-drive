@@ -514,3 +514,60 @@ def test_dropped_visitor_can_rejoin_own_search_but_not_start_another(monkeypatch
     assert r.status_code == 200 and "Reconnected" in r.text and "event: result" in r.text
     other = {**BMW, "part_name": "front bumper"}
     assert c.post("/api/search/stream", json=other).status_code == 429
+
+
+# ---------------- part matching: the requested part vs. a piece of it ----------------
+from app.partmatch import classify as part_kind  # noqa: E402
+
+
+@pytest.mark.parametrize("wanted,sold,kind", [
+    ("headlight", "Suzuki Alto 660 2019-2024 Headlight Glass | OEM Fitment", "component"),
+    ("headlight", "Suzuki Alto 2017-2023 Front Headlight Assey RH China", "exact"),
+    ("headlight", "Suzuki Alto Halogen Pair", "component"),
+    ("headlight", "Suzuki Mehran LED Headlight H4", "component"),
+    ("headlight", "Headlight Assembly Complete Suzuki Alto 660cc", "exact"),
+    ("headlight", "Genuine Right-Side Headlight for Mehran - with Crystal Clear lens", "exact"),
+    ("headlight", "LED Projector Headlight Assembly Alto 2020", "exact"),
+    ("headlight glass", "Suzuki Alto Headlight Glass", "exact"),
+    ("headlight glass", "Suzuki Alto Headlight Assembly RH", "related"),
+    ("radiator", "Honda City radiator cap", "component"),
+    ("radiator", "Honda City 2010 radiator genuine", "exact"),
+    ("brake pads", "Front brake pads set with wear sensor", "exact"),
+    ("brake pads", "Brake pads kit Toyota", "exact"),
+    ("brake pads", "Brake pad wear sensor", "component"),
+    ("side mirror", "Side mirror glass left", "component"),
+    ("side mirror", "Side mirror complete with motor and glass", "exact"),
+    ("AC condenser", "Condenser fan motor Corolla", "component"),
+    ("engine mount", "Engine mount Corolla", "exact"),
+    ("tail light", "Alto LED tail light", "exact"),
+    ("spark plugs", "NGK spark plugs set of 4", "exact"),
+    ("headlight", "Headlight protection film transparent", "component"),
+])
+def test_part_kind(wanted, sold, kind):
+    assert part_kind(wanted, sold)[0] == kind
+
+
+
+def test_named_part_beats_a_wrong_ai_guess():
+    """Live case: the AI called 'Suzuki Alto car headlight left side for sale' a component."""
+    assert part_kind("headlight", "Suzuki Alto car headlight left side for sale", "component")[0] == "exact"
+    assert part_kind("headlight", "Suzuki Alto front lamp unit", "component")[0] == "exact"   # 'unit' = assembly
+    assert part_kind("headlight", "Suzuki Alto part 35120", "component")[0] == "component"   # no part noun: AI decides
+
+
+def test_component_never_becomes_cheapest():
+    """The reported bug: 'Headlight Glass' at PKR 1,350 was ranked the cheapest headlight."""
+    from app.aggregator import assemble
+    def offer(vendor, title, price):
+        url = f"https://{vendor.lower().replace(' ', '')}.pk/x"
+        page = {"url": url, "markdown": f"{vendor} {title} Rs {price:,} Karachi Pakistan"}
+        return verify({"source_url": url, "vendor_name": vendor, "price": price, "currency": "PKR",
+                       "price_text": f"Rs {price:,}", "country_code": "PK", "title": title, "item_sold": title,
+                       "is_requested_part": True}, {url: page}, "PK", "g", EST, "headlight", model="Alto")
+    glass = offer("Auto Parts Bank", "Suzuki Alto Headlight Glass", 1350)
+    lamp = offer("PakWheels", "Suzuki Alto Front Headlight Assey RH", 6499)
+    assert glass.match_kind == "component" and lamp.match_kind == "exact"
+    r = assemble(PartQuery(make="Suzuki", model="Alto", year=2020, part_name="headlight"), [glass, lamp], {}, ["t"])
+    assert r.cheapest_overall.offer.vendor.name == "PakWheels"
+    assert [o.offer.vendor.name for o in r.related] == ["Auto Parts Bank"]
+    assert all(o.offer.match_kind == "exact" for o in r.local)
