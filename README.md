@@ -68,6 +68,9 @@ search_abandoned / no_results`, `open_product / seller_website / contact_call / 
 (with seller country and whether it was a social post), `sort_change`, `price_slider / price_preset /
 budget_suggestion_used`, `filter_country / filter_condition`, `toggle_pakistan_only / toggle_social`,
 `autocomplete_pick / autocomplete_custom` (custom values show what the make/model/part lists are missing).
+Public view: Umami's read-only share page on its own host (portfolio Caddy). Only the share page, its assets and GET
+stats for this one site are proxied; `/login`, `/api/auth/*` and every other admin route return 404 there, so the
+admin UI is reachable only through an SSH tunnel to 127.0.0.1:3001.
 
 ### Live research feed
 `POST /api/search/stream` (Server-Sent Events) narrates the real pipeline as it runs: the planner's strategy,
